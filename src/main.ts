@@ -1,114 +1,66 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
-import {
-	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
-} from './settings';
+import { Plugin } from 'obsidian';
+import { } from './settings';
 
-// Remember to rename these classes and interfaces!
+const CLOZE_REGEX = /\{(?:\d+:)?([^:}]+)(?:::[^}]*?)?\}/g;
+const BLOCK_TAGS_INCLUDED = ["p", "li", "table"];
+const BLOCK_TAGS_EXCLUDED = ["code" , "blockquote"];
 
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
-
+export default class ClozePlugin extends Plugin {
 	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		console.clear()
+		this.registerMarkdownPostProcessor((el: HTMLElement, ctx) => {
+			this.processClozes(el);
 		});
+	}
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
+	private isValidTextNode(node: Node) {
+		return (node.parentElement?.closest(BLOCK_TAGS_INCLUDED.join(", ")) !== null)
+			&& (node.parentElement?.closest(BLOCK_TAGS_EXCLUDED.join(", ")) === null)
+			&& !!node.textContent?.trim();
+	}
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+	private processClozes(el: HTMLElement) {
+		const walker = document.createTreeWalker(
+			el,
+			NodeFilter.SHOW_TEXT,
+			{
+				acceptNode: (node: Node) => {
+					return this.isValidTextNode(node)
+						? NodeFilter.FILTER_ACCEPT
+						: NodeFilter.FILTER_SKIP;
 				}
-				return false;
-			},
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
+			}
 		);
+
+		const blocks: Text[] = [];
+		let current = walker.nextNode() as Text | null;
+		while (current) {
+			blocks.push(current)
+			current = walker.nextNode() as Text | null;
+		}
+
+		const re = new RegExp(CLOZE_REGEX.source, CLOZE_REGEX.flags)
+		blocks.forEach((textblock) => {
+			if (!textblock) return;
+
+			const text = textblock?.textContent ?? "";
+
+			// build new text to put into the block
+			let hasCloze = false;
+			const fragment = document.createDocumentFragment();
+			let lastIndex = 0;
+			for (const match of text.matchAll(re)) {
+				hasCloze = true;
+				fragment.append(text.slice(lastIndex, match.index));
+				fragment.createSpan({ text: match[1] });
+				lastIndex = (match.index ?? 0) + match[0].length;
+			}
+			if (!hasCloze) return;
+
+			// add tail end of text
+			fragment.append(text.slice(lastIndex));
+			textblock.replaceWith(fragment);
+		});
 	}
 
-	onunload() {}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
-		);
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
 }
