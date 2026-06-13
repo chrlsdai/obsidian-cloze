@@ -6,3 +6,41 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+/* ── Card callout base ─────────────────────────────── */
+.callout[data-callout="card"] {
+  --callout-color: 100, 149, 237;
+  --callout-icon: lucide-layers;
+}
+
+/* ── Hide title bar entirely ───────────────────────── */
+.callout[data-callout="card"] .callout-title {
+  display: none;
+}
+
+/* ── Cloze answer styling ───────────────────────────── */
+.callout[data-callout="card"] mark {
+  background-color: rgba(80, 200, 120, 0.18);
+  color: var(--text-normal);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-style: normal;
+}
+
+/* ── Hide empty paragraphs left by stripped %% lines ── */
+.callout[data-callout="card"] .callout-content p[data-card-empty="true"] {
+  display: none;
+}
+
+/* ── Optional: hover-to-reveal study mode ───────────── */
+/* 
+.markdown-reading-view .callout[data-callout="card"] mark {
+  background-color: var(--text-normal);
+  color: transparent;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.markdown-reading-view .callout[data-callout="card"] mark:hover {
+  background-color: rgba(80, 200, 120, 0.25);
+  color: var(--text-normal);
+} 
+*/

@@ -1,16 +1,39 @@
-import { Plugin } from 'obsidian';
+import { MarkdownRenderer, Plugin } from 'obsidian';
 import { } from './settings';
 
 const CLOZE_REGEX = /\{(?:\d+:)?([^:}]+)(?:::[^}]*?)?\}/g;
 const BLOCK_TAGS_INCLUDED = ["p", "li", "table"];
-const BLOCK_TAGS_EXCLUDED = ["code" , "blockquote"];
+const BLOCK_TAGS_EXCLUDED = ["code", "blockquote"];
 
 export default class ClozePlugin extends Plugin {
 	async onload() {
 		console.clear()
-		this.registerMarkdownPostProcessor((el: HTMLElement, ctx) => {
+		this.registerMarkdownPostProcessor((el: HTMLElement) => {
+			this.labelEmptyFlashcardLines(el);
 			this.processClozes(el);
 		});
+	}
+
+
+	private labelEmptyFlashcardLines(el: HTMLElement) {
+		el.querySelectorAll('.callout[data-callout="card"] .callout-content p')
+			.forEach(p => {
+				console.log(p.nodeName)
+				const effectivelyEmpty = [...p.childNodes].every(node => {
+					if (!node) return true;
+					if (node.nodeType === Node.TEXT_NODE) {
+						return node.textContent?.trim() === '';
+					}
+					if (node.nodeType === Node.ELEMENT_NODE) {
+						return node.nodeName === 'BR';
+					}
+					return false;
+				});
+
+				if (effectivelyEmpty) {
+					p.setAttr('data-card-empty', true);
+				}
+			});
 	}
 
 	private isValidTextNode(node: Node) {
