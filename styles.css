@@ -17,18 +17,13 @@ If your plugin does not need CSS, delete this file.
   display: none;
 }
 
-/* ── Cloze answer styling ───────────────────────────── */
-.callout[data-callout="card"] mark {
-  background-color: rgba(80, 200, 120, 0.18);
-  color: var(--text-normal);
-  border-radius: 3px;
-  padding: 0 2px;
-  font-style: normal;
-}
-
 /* ── Hide empty paragraphs left by stripped %% lines ── */
 .callout[data-callout="card"] .callout-content p[data-card-empty="true"] {
   display: none;
+}
+
+.cloze {
+  color: var(--text-accent);
 }
 
 /* ── Optional: hover-to-reveal study mode ───────────── */
