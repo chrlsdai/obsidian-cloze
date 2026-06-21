@@ -1,13 +1,7 @@
-export type NoteFields = Record<string, string>;
+import { ParsedCard } from "./parser";
+import { ankiRequest } from "./anki-connect"
 
-export interface AnkiNoteOptions {
-    id?: number;
-    deckName: string;
-    modelName: string;
-    fields: NoteFields;
-    tags?: string[];
-    cards?: number[];
-}
+export type NoteFields = Record<string, string>;
 
 export interface AnkiConnectNote {
     deckName: string;
@@ -20,155 +14,135 @@ export interface AnkiConnectNote {
     };
 }
 
-export class AnkiNote {
-    private readonly _id: number | null;
-    private readonly _deckName: string;
-    private readonly _modelName: string;
-    private readonly _fields: NoteFields;
-    private readonly _tags: Set<string>;
-    private readonly _cards: number[];
-    private readonly _createdAt: Date;
+export interface NoteModelConfig {
+    deckName: string;
+    modelName: string;
+    firstFieldName: string; // e.g. "Front", "Word", etc.
+}
 
-    constructor(options: AnkiNoteOptions) {
-        this._id = options.id ?? null;
-        this._deckName = this.validateNotEmpty(options.deckName, "Deck name");
-        this._modelName = this.validateNotEmpty(options.modelName, "Model name");
-        this._fields = { ...options.fields };
-        this._tags = new Set(options.tags ?? []);
-        this._cards = [...(options.cards ?? [])];
-        this._createdAt = new Date();
+export const createNoteConverter = (config: NoteModelConfig) =>
+    (card: ParsedCard): AnkiConnectNote => ({
+        deckName: config.deckName,
+        modelName: config.modelName,
+        fields: {
+            [config.firstFieldName]: card.text,
+            ...card.cardFields,
+        },
+        tags: [...card.tags],
+        options: {
+            allowDuplicate: false,
+            duplicateScope: "deck",
+        },
+    });
+
+
+// Add a single note, returns its Anki note ID
+export const addNote = (note: AnkiConnectNote) =>
+    ankiRequest<number>("addNote", { note });
+
+// Add multiple notes in one request
+export const addNotes = (notes: AnkiConnectNote[]) =>
+    ankiRequest<number[]>("addNotes", { notes });
+
+type ValidationResult =
+    | { success: true; firstFieldName: string }
+    | { success: false; error: string };
+
+async function validateAndGetFirstField(
+    deckName: string,
+    modelName: string
+): Promise<ValidationResult> {
+    const [deckNames, modelNames] = await Promise.all([
+        ankiRequest<string[]>("deckNames", {}),
+        ankiRequest<string[]>("modelNames", {}),
+    ]);
+
+    if (!deckNames.includes(deckName)) {
+        return { success: false, error: `Deck "${deckName}" not found` };
     }
 
-    // ─── Getters ────────────────────────────────────────────────────────────────
-
-    get id(): number | null {
-        return this._id;
+    if (!modelNames.includes(modelName)) {
+        return { success: false, error: `Model "${modelName}" not found` };
     }
 
-    get deckName(): string {
-        return this._deckName;
+    const fieldNames = await ankiRequest<string[]>("modelFieldNames", {
+        modelName,
+    });
+
+    if (!fieldNames.length) {
+        return { success: false, error: `Model "${modelName}" has no fields` };
     }
 
-    get modelName(): string {
-        return this._modelName;
-    }
+    return { success: true, firstFieldName: fieldNames[0] ?? '' };
+}
 
-    get fields(): Readonly<NoteFields> {
-        return { ...this._fields };
-    }
+interface SyncResult {
+    created: number[];
+    updated: number[];
+}
 
-    get tags(): string[] {
-        return Array.from(this._tags);
-    }
+async function syncNotes(
+    cards: ParsedCard[],
+    config: NoteModelConfig
+): Promise<SyncResult> {
+    const toAnkiNote = createNoteConverter(config);
 
-    // ─── Field Methods ───────────────────────────────────────────────────────────
+    const cardsWithIds = cards.filter(
+        (c): c is ParsedCard & { id: number } => c.id !== undefined
+    );
+    const cardsWithoutIds = cards.filter((c) => c.id === undefined);
 
-    getField(name: string): string | undefined {
-        return this._fields[name];
-    }
-
-    hasField(name: string): boolean {
-        return Object.prototype.hasOwnProperty.call(this._fields, name);
-    }
-
-    getFieldNames(): string[] {
-        return Object.keys(this._fields);
-    }
-
-    // ─── Serialization ───────────────────────────────────────────────────────────
-
-    toJSON(): AnkiNoteOptions & { createdAt: string } {
-        return {
-            id: this._id ?? undefined,
-            deckName: this._deckName,
-            modelName: this._modelName,
-            fields: { ...this._fields },
-            tags: this.tags,
-            cards: this._cards,
-            createdAt: this._createdAt.toISOString(),
-        };
-    }
-
-    /** Formats the note for use with the AnkiConnect API */
-    toAnkiConnect(allowDuplicate = false): AnkiConnectNote {
-        return {
-            deckName: this._deckName,
-            modelName: this._modelName,
-            fields: { ...this._fields },
-            tags: this.tags,
-            options: {
-                allowDuplicate,
-                duplicateScope: "deck",
-            },
-        };
-    }
-
-    toString(): string {
-        return (
-            `AnkiNote { id: ${this._id}, deck: "${this._deckName}", ` +
-            `model: "${this._modelName}", tags: [${this.tags.join(", ")}] }`
+    // Check which IDs actually exist in Anki
+    const existingIds = new Set<number>();
+    if (cardsWithIds.length > 0) {
+        const notesInfo = await ankiRequest<({ noteId?: number } | null)[]>(
+            "notesInfo",
+            { notes: cardsWithIds.map((c) => c.id) }
         );
-    }
-
-    private validateNotEmpty(value: string, label: string): string {
-        if (!value?.trim()) {
-            throw new Error(`${label} cannot be empty.`);
-        }
-        return value.trim();
-    }
-
-    // ─── Static Factory Methods ──────────────────────────────────────────────────
-
-    /** Creates a Basic (front/back) note */
-    static createBasic(
-        deckName: string,
-        front: string,
-        back: string,
-        tags?: string[]
-    ): AnkiNote {
-        return new AnkiNote({
-            deckName,
-            modelName: "Basic",
-            fields: { Front: front, Back: back },
-            tags,
+        notesInfo.forEach((info, i) => {
+            if (info?.noteId) existingIds.add(cardsWithIds[i].id);
         });
     }
 
-    /** Creates a Basic note with a reversed card */
-    static createBasicReversed(
-        deckName: string,
-        front: string,
-        back: string,
-        tags?: string[]
-    ): AnkiNote {
-        return new AnkiNote({
-            deckName,
-            modelName: "Basic (and reversed card)",
-            fields: { Front: front, Back: back },
-            tags,
-        });
-    }
+    const toUpdate = cardsWithIds.filter((c) => existingIds.has(c.id));
+    const toCreate = [
+        ...cardsWithoutIds,
+        ...cardsWithIds.filter((c) => !existingIds.has(c.id)),
+    ];
 
-    /**
-     * Creates a Cloze deletion note.
-     * @example AnkiNote.createCloze("Deck", "The capital of France is {{c1::Paris}}.")
-     */
-    static createCloze(
-        deckName: string,
-        text: string,
-        extra = "",
-        tags?: string[]
-    ): AnkiNote {
-        return new AnkiNote({
-            deckName,
-            modelName: "Cloze",
-            fields: { Text: text, Extra: extra },
-            tags,
-        });
-    }
+    // No batch API for updateNote, so run in parallel
+    await Promise.all(
+        toUpdate.map((card) => {
+            const { fields, tags } = toAnkiNote(card);
+            return ankiRequest<null>("updateNote", {
+                note: { id: card.id, fields, tags },
+            });
+        })
+    );
 
-    /** Deserializes a plain object back into an AnkiNote */
-    static fromJSON(data: AnkiNoteOptions): AnkiNote {
-        return new AnkiNote(data);
-    }
+    const createdIds =
+        toCreate.length > 0
+            ? await ankiRequest<number[]>("addNotes", {
+                notes: toCreate.map(toAnkiNote),
+            })
+            : [];
+
+    return {
+        created: createdIds,
+        updated: toUpdate.map((c) => c.id),
+    };
+}
+
+const result = await validateAndGetFirstField("Default", "Cloze");
+if (result.success) {
+    const config: NoteModelConfig = {
+        deckName: "Japanese",
+        modelName: "Basic",
+        firstFieldName: result.firstFieldName,
+    };
+    const noteConverter = createNoteConverter(config);
+    const cards = parsedCards.map(noteConverter))
+    syncNotes(cards, config)
+} else {
+    console.error(result.error);
 }

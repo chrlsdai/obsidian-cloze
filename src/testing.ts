@@ -11,7 +11,7 @@ import { invoke } from "./anki-connect";
 
 const cloze = AnkiNote.createCloze(
     "Default",
-    "The French Revolution began in {{c1::1789}}.",
+    "The French <b>Revolution</b> began in {{c1::1789}}.",
     "Caused by economic hardship and social inequality.",
     ["history", "europe"]
 );

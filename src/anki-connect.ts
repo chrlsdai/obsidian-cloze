@@ -1,36 +1,20 @@
 const ANKI_PORT: number = 8765
 
-interface AnkiConnectRequest {
-    action: string,
-    version: 6,
-    params: any
-}
+const ANKI_CONNECT_URL = "http://127.0.0.1:" + ANKI_PORT;
 
-export async function invoke(action: string, params = {}) {
-    const ankiRequest: AnkiConnectRequest = {
-        action,
-        version: 6,
-        params
-    };
-
-    const request = await fetch('http://127.0.0.1:' + ANKI_PORT, {
-        method: 'POST',
-        body: JSON.stringify(ankiRequest)
+export async function ankiRequest<T>(action: string, params: object): Promise<T> {
+    const response = await fetch(ANKI_CONNECT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            action,
+            version: 6,
+            params
+        }),
     });
 
-    const response = await request.json();
-
-    if (Object.getOwnPropertyNames(response).length != 2) {
-        throw new Error('response has an unexpected number of fields');
-    }
-    if (!response.hasOwnProperty('error')) {
-        throw new Error('response is missing required error field');
-    }
-    if (!response.hasOwnProperty('result')) {
-        throw new Error('response is missing required result field');
-    }
-    if (response.error) {
-        throw new Error(response.error);
-    }
-    return response.result;
+    const { result, error } = await response.json();
+    if (error) throw new Error(`AnkiConnect error: ${error}`);
+    return result as T;
 }
+

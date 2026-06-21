@@ -1,46 +1,44 @@
-import { Plugin } from 'obsidian';
+import { Plugin } from "obsidian";
 import { } from './settings';
+import { parseFileWithLocations } from './parser';
+import { createNoteConverter, NoteModelConfig } from "./anki-note";
+
 
 const CLOZE_REGEX = /\{(?:\d+:)?([^:}]+)(?:::[^}]*?)?\}/g;
+
+/*
+main.ts
+|--> markdown postprocessing (clozes to spans)
+|--> 
+
+*/
 
 export default class ClozePlugin extends Plugin {
 	async onload() {
 		console.clear()
+		this.addCommand({
+			id: 'sync-notes',
+			name: "Sync Notes",
+			callback: async() => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile) return;
+				console.log(parseFileWithLocations(this.app, activeFile));
+			}
+		})
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
-			this.labelEmptyCardLines(el);
 			this.renderCardClozes(el);
 		});
 	}
 
-	/* Check if a node is either empty or only contains a linebreak */
-	private isEffectivelyEmpty(node: Node): boolean {
-		if (node.nodeType === Node.TEXT_NODE) {
-			return node.textContent?.trim() === '';
-		}
-		if (node.nodeType === Node.ELEMENT_NODE) {
-			return node.nodeName === 'BR';
-		}
-		return false;
-	}
-	/*
-	Label paragraphs within callout blocks as empty, for css to pick up on.
-	Essentially to hide property data in the beginning of flashcards.
-	*/
-	private labelEmptyCardLines(el: HTMLElement) {
-		const paragraphs = el.querySelectorAll(
-			'.callout[data-callout="card"] .callout-content p'
-		);
-
-		paragraphs.forEach(p => {
-			const effectivelyEmpty =
-				p.childNodes.length === 0 ||
-				[...p.childNodes].every(node => this.isEffectivelyEmpty(node));
-
-			if (effectivelyEmpty) {
-				p.setAttr('data-card-empty', 'true');
-			}
-		});
-	}
+	// private syncCards() {
+	// 	const config = getConfig();
+	// 	const files = getChangedFiles(this.app);
+	// 	for (const file of files) {
+	// 		const notes: ankiNotes[] = parseFile(file, config);
+	// 		const result = syncNotestoAnki(notes);
+	// 		updateNoteData(notes, result);
+	// 	}
+	// }
 
 	/*
 	Find and render all clozes in flashcards in given block.

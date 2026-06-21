@@ -1,11 +1,4 @@
-/*
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-If your plugin does not need CSS, delete this file.
-
-*/
 /* ── Card callout base ─────────────────────────────── */
 .callout[data-callout="card"] {
   --callout-color: 100, 149, 237;
@@ -13,7 +6,7 @@ If your plugin does not need CSS, delete this file.
 }
 
 /* ── Hide title bar entirely ───────────────────────── */
-.callout[data-callout="card"] .callout-title {
+.callout[data-callout="card"] > .callout-title {
   display: none;
 }
 
@@ -22,6 +15,33 @@ If your plugin does not need CSS, delete this file.
   display: none;
 }
 
+/* == Make the card metadata more subtle ============== */
+.callout[data-callout="card-metadata"] {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-top: 0.25em;
+}
+
+/* Hide the icon */
+.callout[data-callout="card-metadata"] .callout-icon {
+  display: none;
+}
+
+/* Make text grey */
+.callout[data-callout="card-metadata"],
+.callout[data-callout="card-metadata"] * {
+  color: var(--text-faint);
+}
+
+/* Reduce spacing for paragraphs in card-metadata */
+.callout[data-callout="card-metadata"] .callout-content p {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+
+/* == Style card cloze ================================= */
 .cloze {
   color: var(--text-accent);
 }
