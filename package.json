@@ -22,10 +22,12 @@
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",
     "globals": "^17.6.0",
+    "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "jiti": "^2.6.1",
     "obsidian": "latest",
     "ts-jest": "^29.4.11",
+    "ts-node": "^10.9.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1"
