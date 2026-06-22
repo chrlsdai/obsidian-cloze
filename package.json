@@ -15,6 +15,7 @@
   "license": "0-BSD",
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@jest/globals": "^30.4.1",
     "@types/jest": "^30.0.0",
     "depcheck": "^1.4.7",
     "esbuild": "0.25.5",

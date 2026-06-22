@@ -1,22 +1,22 @@
-export class App {}
+import { jest } from "@jest/globals";
 
-export class Component {
-  load()   {}
-  unload() {}
-}
+export const App = jest.fn();
 
 export class Notice {
   constructor(public message: string) {}
 }
 
-export const MarkdownRenderer = {
-  render: jest.fn().mockResolvedValue(undefined),
-};
-
 export class MarkdownView {
   file: unknown = null;
 }
 
-export class TFile {
-  constructor(public path: string = "test.md") {}
-}
+export const Component = jest.fn().mockImplementation(() => ({
+    load:   jest.fn(),
+    unload: jest.fn(),
+}));
+
+export const MarkdownRenderer = {
+    render: jest.fn().mockReturnValueOnce(undefined),
+};
+
+export const TFile = jest.fn();

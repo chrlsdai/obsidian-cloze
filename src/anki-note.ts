@@ -14,24 +14,33 @@ export interface AnkiConnectNote {
     };
 }
 
-export interface NoteModelConfig {
+export interface NoteConfig {
     deckName: string;
     modelName: string;
-    firstFieldName: string; // e.g. "Front", "Word", etc.
+    firstFieldName: string;
+    allowDuplicate?: boolean;
+    duplicateScope?: string;
 }
 
-export const createNoteConverter = (config: NoteModelConfig) =>
+export const createNoteConverter = (config: NoteConfig) =>
     (card: ParsedCard): AnkiConnectNote => ({
         deckName: config.deckName,
         modelName: config.modelName,
-        fields: {
-            [config.firstFieldName]: card.text,
-            ...card.cardFields,
-        },
+        fields: (() => {
+            if (card.cardFields[config.firstFieldName] !== undefined) {
+                console.warn(
+                    `cardFields contains key "${config.firstFieldName}" which conflicts with firstFieldName`
+                );
+            }
+            return {
+                ...card.cardFields,
+                [config.firstFieldName]: card.text, // primary field always wins
+            };
+        })(),
         tags: [...card.tags],
         options: {
-            allowDuplicate: false,
-            duplicateScope: "deck",
+            allowDuplicate: config.allowDuplicate ?? false,
+            duplicateScope: config.duplicateScope ?? "deck",
         },
     });
 
@@ -44,105 +53,164 @@ export const addNote = (note: AnkiConnectNote) =>
 export const addNotes = (notes: AnkiConnectNote[]) =>
     ankiRequest<number[]>("addNotes", { notes });
 
-type ValidationResult =
-    | { success: true; firstFieldName: string }
-    | { success: false; error: string };
-
-async function validateAndGetFirstField(
+export async function getConfig(
     deckName: string,
     modelName: string
-): Promise<ValidationResult> {
+): Promise<NoteConfig> {
     const [deckNames, modelNames] = await Promise.all([
         ankiRequest<string[]>("deckNames", {}),
         ankiRequest<string[]>("modelNames", {}),
     ]);
 
     if (!deckNames.includes(deckName)) {
-        return { success: false, error: `Deck "${deckName}" not found` };
+        throw new Error(`Deck "${deckName}" not found`);
     }
 
     if (!modelNames.includes(modelName)) {
-        return { success: false, error: `Model "${modelName}" not found` };
+        throw new Error(`Model "${modelName}" not found`);
     }
 
-    const fieldNames = await ankiRequest<string[]>("modelFieldNames", {
-        modelName,
-    });
+    const fieldNames = await ankiRequest<string[]>(
+        "modelFieldNames",
+        { modelName }
+    );
 
     if (!fieldNames.length) {
-        return { success: false, error: `Model "${modelName}" has no fields` };
+        throw new Error(`Model "${modelName}" has no fields`);
     }
 
-    return { success: true, firstFieldName: fieldNames[0] ?? '' };
+    return {
+        deckName: deckName,
+        modelName: modelName,
+        firstFieldName: fieldNames[0] ?? ''
+    };
 }
 
-interface SyncResult {
-    created: number[];
-    updated: number[];
+type SyncStatus = "created" | "updated" | "error";
+
+interface CardSyncResult {
+    id: number | null;
+    status: SyncStatus;
+    error?: string;
 }
 
-async function syncNotes(
+export async function syncNotes(
     cards: ParsedCard[],
-    config: NoteModelConfig
-): Promise<SyncResult> {
+    config: NoteConfig,
+    chunkSize = 20
+): Promise<CardSyncResult[]> {
     const toAnkiNote = createNoteConverter(config);
 
-    const cardsWithIds = cards.filter(
-        (c): c is ParsedCard & { id: number } => c.id !== undefined
+    // Pre-fill every slot with a safe error default so no index is ever undefined
+    const results: CardSyncResult[] = Array.from(
+        { length: cards.length },
+        () => ({ id: null, status: "error" as SyncStatus })
     );
-    const cardsWithoutIds = cards.filter((c) => c.id === undefined);
 
     // Check which IDs actually exist in Anki
     const existingIds = new Set<number>();
+    const cardsWithIds = cards.filter(
+        (c): c is ParsedCard & { id: number } => c.id !== undefined
+    );
+
     if (cardsWithIds.length > 0) {
         const notesInfo = await ankiRequest<({ noteId?: number } | null)[]>(
             "notesInfo",
             { notes: cardsWithIds.map((c) => c.id) }
         );
+
+        // Key by ID rather than relying on index alignment from AnkiConnect
+        const idToInfo = new Map<number, { noteId?: number } | null>();
         notesInfo.forEach((info, i) => {
-            if (info?.noteId) existingIds.add(cardsWithIds[i].id);
+            const card = cardsWithIds[i];
+            if (card) idToInfo.set(card.id, info);
+        });
+
+        cardsWithIds.forEach((card) => {
+            if (idToInfo.get(card.id)?.noteId) existingIds.add(card.id);
         });
     }
 
-    const toUpdate = cardsWithIds.filter((c) => existingIds.has(c.id));
-    const toCreate = [
-        ...cardsWithoutIds,
-        ...cardsWithIds.filter((c) => !existingIds.has(c.id)),
-    ];
+    // Bucket cards into update/create while preserving original indices
+    const toUpdate: { card: ParsedCard & { id: number }; index: number }[] = [];
+    const toCreate: { card: ParsedCard; index: number }[] = [];
 
-    // No batch API for updateNote, so run in parallel
-    await Promise.all(
-        toUpdate.map((card) => {
-            const { fields, tags } = toAnkiNote(card);
-            return ankiRequest<null>("updateNote", {
-                note: { id: card.id, fields, tags },
-            });
-        })
-    );
+    cards.forEach((card, index) => {
+        if (card.id !== undefined && existingIds.has(card.id)) {
+            toUpdate.push({ card: card as ParsedCard & { id: number }, index });
+        } else {
+            toCreate.push({ card, index });
+        }
+    });
 
-    const createdIds =
-        toCreate.length > 0
-            ? await ankiRequest<number[]>("addNotes", {
-                notes: toCreate.map(toAnkiNote),
-            })
-            : [];
+    await Promise.all([
+        // No batch API for updateNote, so run in controlled parallel chunks
+        batchRun(toUpdate, chunkSize, async ({ card, index }) => {
+            try {
+                const { fields, tags } = toAnkiNote(card);
+                await ankiRequest<null>("updateNote", {
+                    note: { id: card.id, fields, tags },
+                });
+                console.log( card.id, tags );
+                results[index] = { id: card.id, status: "updated" };
+            } catch (e) {
+                results[index] = {
+                    id: card.id,
+                    status: "error",
+                    error: e instanceof Error ? e.message : String(e),
+                };
+            }
+        }),
 
-    return {
-        created: createdIds,
-        updated: toUpdate.map((c) => c.id),
-    };
+        // Create new notes in a single batch
+        (async () => {
+            if (toCreate.length === 0) return;
+            try {
+                const createdIds = await ankiRequest<(number | null)[]>(
+                    "addNotes",
+                    { notes: toCreate.map(({ card }) => toAnkiNote(card)) }
+                );
+                toCreate.forEach(({ index }, j) => {
+                    const id = createdIds[j] ?? null;
+                    results[index] = id !== null
+                        ? { id, status: "created" }
+                        : { id: null, status: "error", error: "addNotes returned null for this note" };
+                });
+            } catch (e) {
+                toCreate.forEach(({ index }) => {
+                    results[index] = {
+                        id: null,
+                        status: "error",
+                        error: e instanceof Error ? e.message : String(e),
+                    };
+                });
+            }
+        })(),
+    ]);
+
+    return results;
 }
 
-const result = await validateAndGetFirstField("Default", "Cloze");
-if (result.success) {
-    const config: NoteModelConfig = {
-        deckName: "Japanese",
-        modelName: "Basic",
-        firstFieldName: result.firstFieldName,
-    };
-    const noteConverter = createNoteConverter(config);
-    const cards = parsedCards.map(noteConverter))
-    syncNotes(cards, config)
-} else {
-    console.error(result.error);
+// Chunk updates into batches of N
+async function batchRun<T>(
+    items: T[],
+    chunkSize: number,
+    fn: (item: T) => Promise<void>
+): Promise<void> {
+    for (let i = 0; i < items.length; i += chunkSize) {
+        await Promise.all(items.slice(i, i + chunkSize).map(fn));
+    }
+}
+
+export function generateUpdates(
+    cards: ParsedCard[],
+    results: CardSyncResult[]
+): ReadonlyArray<{ card: ParsedCard; fields: Record<string, string> }> {
+    return results
+        .map((result, index) => ({ result, card: cards[index]! }))
+        .filter(({ result, card }) => card !== undefined && result.status === "created" && result.id !== null)
+        .map(({ result, card }) => ({
+            card,
+            fields: { id: String(result.id) },
+        }));
 }

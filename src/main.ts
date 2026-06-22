@@ -1,9 +1,13 @@
 import { Plugin } from "obsidian";
 import { } from './settings';
-import { parseFileWithLocations } from './parser';
-import { createNoteConverter, NoteModelConfig } from "./anki-note";
+import { parseCards, ParsedCard } from './parser';
+import { getActiveHTML } from "./helpers";
+import { CardFile, filterValidCards } from "./obsidian-card";
+import { generateUpdates, getConfig, syncNotes } from "./anki-note";
+// import { createNoteConverter, NoteModelConfig } from "./anki-note";
 
-
+const deckName = "Default";
+const modelName = "Cloze";
 const CLOZE_REGEX = /\{(?:\d+:)?([^:}]+)(?:::[^}]*?)?\}/g;
 
 /*
@@ -17,12 +21,31 @@ export default class ClozePlugin extends Plugin {
 	async onload() {
 		console.clear()
 		this.addCommand({
-			id: 'sync-notes',
-			name: "Sync Notes",
+			id: 'parse-notes',
+			name: "Parse Notes",
+			callback: async() => {
+				const activeHTML = await getActiveHTML(this.app);
+				if (!activeHTML) return;
+				console.log(parseCards(activeHTML, this.app.vault.getName()));
+			}
+		})
+		this.addCommand({
+			id: 'parse-file',
+			name: "Parse File",
 			callback: async() => {
 				const activeFile = this.app.workspace.getActiveFile();
 				if (!activeFile) return;
-				console.log(parseFileWithLocations(this.app, activeFile));
+				const cards = await CardFile.load(this.app, activeFile)
+				if (!cards.cards[0] || !cards.cards[1]) return;
+				cards.writeCards([{card: cards.cards[0], fields: {"id": "123"}}, {card: cards.cards[1], fields: {"suspended": "false", "id": "45"}}])
+				console.log(await CardFile.load(this.app, activeFile))
+			}
+		})
+		this.addCommand({
+			id: 'sync-vault',
+			name: 'Sync Vault',
+			callback: async() => {
+				this.syncCards()
 			}
 		})
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
@@ -30,15 +53,19 @@ export default class ClozePlugin extends Plugin {
 		});
 	}
 
-	// private syncCards() {
-	// 	const config = getConfig();
-	// 	const files = getChangedFiles(this.app);
-	// 	for (const file of files) {
-	// 		const notes: ankiNotes[] = parseFile(file, config);
-	// 		const result = syncNotestoAnki(notes);
-	// 		updateNoteData(notes, result);
-	// 	}
-	// }
+	private async syncCards() {
+		const config = await getConfig(deckName, modelName);
+		// const files = getChangedFiles(this.app);
+		const files = [this.app.workspace.getActiveFile()]
+		for (const file of files) {
+			if (!file) continue;
+			const cardFile = await CardFile.load(this.app, file);
+			const cardsToSync = filterValidCards(cardFile.cards);
+			const results = await syncNotes(cardsToSync, config);
+			const updates = generateUpdates(cardsToSync, results);
+			await cardFile.writeCards(updates);
+		}
+	}
 
 	/*
 	Find and render all clozes in flashcards in given block.

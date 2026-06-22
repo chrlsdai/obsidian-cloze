@@ -28,6 +28,10 @@
   display: none;
 }
 
+.callout[data-callout="card-metadata"] .callout-title-inner {
+  display: none;
+}
+
 /* Make text grey */
 .callout[data-callout="card-metadata"],
 .callout[data-callout="card-metadata"] * {
