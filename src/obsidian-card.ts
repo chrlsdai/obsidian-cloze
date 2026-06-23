@@ -117,7 +117,7 @@ export class CardFile {
         }
 
         const rawCards = parseCards(container, this.app.vault.getName());
-        console.log(rawCards.map((card) => card.text))
+
         // ── Guard 1: every card must be individually valid ────────────────────
         const invalid = rawCards
             .map((card, i) => ({ card, i }))
@@ -249,7 +249,7 @@ function isMetadataHeader(line: string): boolean {
  * - **Existing field** — replaced in-place on its original line.
  * - **New field** — appended at the end of the existing metadata block.
  * - **No metadata block** — a `> > [!card-metadata]` sub-block is created
- *   immediately after the card's last line.
+ *   immediately after the card's first line.
  *
  * > ⚠️ `location` becomes stale after this call because line numbers shift.
  * > Re-call {@link locateCards} before making further edits.

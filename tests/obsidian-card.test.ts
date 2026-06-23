@@ -14,30 +14,17 @@ import { App, Component, MarkdownRenderer, TFile } from 'obsidian';
 import { parseCards } from '../src/parser';
 import type { ParsedCard } from '../src/parser';
 
-// ─── Mocks ────────────────────────────────────────────────────────────────────
-
-jest.mock('obsidian', () => ({
-    App: jest.fn(),
-    Component: jest.fn().mockImplementation(() => ({
-        load: jest.fn(),
-        unload: jest.fn(),
-    })),
-    MarkdownRenderer: {
-        render: jest.fn().mockResolvedValue(undefined),
-    },
-    TFile: jest.fn(),
-}));
-
-jest.mock('../src/parser', () => ({
-    parseCards: jest.fn(),
-}));
-
 // ─── Typed aliases for mocked values ─────────────────────────────────────────
 
+// Delegates to __mocks__/obsidian.ts automatically.
+jest.mock('obsidian');
+jest.mock('../src/parser');
+
 const mockParseCards = parseCards as jest.MockedFunction<typeof parseCards>;
-const mockRender = (MarkdownRenderer as any).render as jest.MockedFunction<
-    (app: App, src: string, el: HTMLElement, path: string, cmp: unknown) => Promise<void>
+const mockRender = MarkdownRenderer.render as jest.MockedFunction<
+    typeof MarkdownRenderer.render
 >;
+
 
 // ─── Factory helpers ──────────────────────────────────────────────────────────
 
@@ -440,11 +427,8 @@ describe('CardFile', () => {
         });
 
         it('calls load() then unload() on the Component', async () => {
-            const load = jest.fn();
-            const unload = jest.fn();
-            (Component as jest.MockedClass<typeof Component>).mockImplementationOnce(
-                () => ({ load, unload }) as unknown as Component,
-            );
+            const load = jest.spyOn(Component.prototype, 'load').mockImplementation(() => undefined);
+            const unload = jest.spyOn(Component.prototype, 'unload').mockImplementation(() => undefined);
             mockParseCards.mockReturnValue([makeCard()] as any);
 
             await CardFile.load(makeApp(SINGLE_CARD_MD), makeFile());
@@ -454,10 +438,7 @@ describe('CardFile', () => {
         });
 
         it('unloads the Component even when MarkdownRenderer.render rejects', async () => {
-            const unload = jest.fn();
-            (Component as jest.MockedClass<typeof Component>).mockImplementationOnce(
-                () => ({ load: jest.fn(), unload }) as unknown as Component,
-            );
+            const unload = jest.spyOn(Component.prototype, 'unload').mockImplementation(() => undefined);
             mockRender.mockRejectedValueOnce(new Error('render failed'));
 
             await expect(

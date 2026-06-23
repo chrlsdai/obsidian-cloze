@@ -15,6 +15,7 @@
 		"allowSyntheticDefaultImports": true,
 		"lib": ["ES2021", "DOM"],
 		"ignoreDeprecations": "6.0",
+		"types": ["jest", "node"],
 	},
 	"include": ["src/**/*.ts"]
 }

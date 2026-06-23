@@ -7,7 +7,7 @@ export interface AnkiConnectNote {
     deckName: string;
     modelName: string;
     fields: NoteFields;
-    tags: string[];
+    tags: Set<String>;
     options: {
         allowDuplicate: boolean;
         duplicateScope: string;
@@ -37,7 +37,7 @@ export const createNoteConverter = (config: NoteConfig) =>
                 [config.firstFieldName]: card.text, // primary field always wins
             };
         })(),
-        tags: [...card.tags],
+        tags: new Set([...card.tags]),
         options: {
             allowDuplicate: config.allowDuplicate ?? false,
             duplicateScope: config.duplicateScope ?? "deck",
@@ -151,7 +151,6 @@ export async function syncNotes(
                 await ankiRequest<null>("updateNote", {
                     note: { id: card.id, fields, tags },
                 });
-                console.log( card.id, tags );
                 results[index] = { id: card.id, status: "updated" };
             } catch (e) {
                 results[index] = {

@@ -1,4 +1,4 @@
-import { Plugin } from "obsidian";
+import { Notice, Plugin, TFile, TFolder } from "obsidian";
 import { } from './settings';
 import { parseCards, ParsedCard } from './parser';
 import { getActiveHTML } from "./helpers";
@@ -8,63 +8,139 @@ import { generateUpdates, getConfig, syncNotes } from "./anki-note";
 
 const deckName = "Default";
 const modelName = "Cloze";
+const scanFolder = "notes";
 const CLOZE_REGEX = /\{(?:\d+:)?([^:}]+)(?:::[^}]*?)?\}/g;
 
-/*
-main.ts
-|--> markdown postprocessing (clozes to spans)
-|--> 
+interface PluginData {
+	lastRun: number | null;
+}
 
-*/
+const DEFAULT_DATA: PluginData = {
+	lastRun: null,
+};
 
 export default class ClozePlugin extends Plugin {
+	data: PluginData = DEFAULT_DATA;
+
 	async onload() {
-		console.clear()
-		this.addCommand({
-			id: 'parse-notes',
-			name: "Parse Notes",
-			callback: async() => {
-				const activeHTML = await getActiveHTML(this.app);
-				if (!activeHTML) return;
-				console.log(parseCards(activeHTML, this.app.vault.getName()));
-			}
-		})
+		this.data = Object.assign({}, DEFAULT_DATA, await this.loadData());
+		const statusBar = this.addStatusBarItem();
 		this.addCommand({
 			id: 'parse-file',
 			name: "Parse File",
-			callback: async() => {
+			callback: async () => {
 				const activeFile = this.app.workspace.getActiveFile();
 				if (!activeFile) return;
-				const cards = await CardFile.load(this.app, activeFile)
-				if (!cards.cards[0] || !cards.cards[1]) return;
-				cards.writeCards([{card: cards.cards[0], fields: {"id": "123"}}, {card: cards.cards[1], fields: {"suspended": "false", "id": "45"}}])
-				console.log(await CardFile.load(this.app, activeFile))
+				this.syncCards([activeFile], statusBar);
 			}
 		})
 		this.addCommand({
 			id: 'sync-vault',
 			name: 'Sync Vault',
-			callback: async() => {
-				this.syncCards()
+			callback: async () => {
+				const folder = this.app.vault.getAbstractFileByPath(scanFolder)
+				let files;
+				if (!scanFolder) {
+					files = await this.getFilesSinceLastRun();
+				}
+				else if (folder instanceof TFolder) {
+					files = await this.getFilesSinceLastRun(folder);
+				} else {
+					throw Error("Folder is set, but does not point to a valid folder.")
+				}
+				if (files.length === 0) {
+					new Notice("No files to process. Everything is up to date!");
+					return;
+				}
+				if (await this.syncCards(files, statusBar)) {
+					this.updateLastRun();
+				}
 			}
 		})
+		this.addCommand({
+			id: "reset-cache",
+			name: "Reset Cache",
+			callback: async () => {
+				await this.resetLastRun();
+			},
+		});
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
 			this.renderCardClozes(el);
 		});
 	}
 
-	private async syncCards() {
-		const config = await getConfig(deckName, modelName);
-		// const files = getChangedFiles(this.app);
-		const files = [this.app.workspace.getActiveFile()]
-		for (const file of files) {
+	async getFilesSinceLastRun(folder?: TFolder): Promise<TFile[]> {
+		const { lastRun } = this.data;
+
+		// Get files from folder (recursive) or entire vault
+		const files = folder
+			? this.getFilesInFolder(folder)
+			: this.app.vault.getFiles();
+
+		if (lastRun === null) {
+			return files;
+		}
+
+		return files.filter((file) => file.stat.mtime > lastRun);
+	}
+
+	// Recursively get all TFiles within a TFolder
+	getFilesInFolder(folder: TFolder): TFile[] {
+		const files: TFile[] = [];
+
+		for (const child of folder.children) {
+			if (child instanceof TFile) {
+				files.push(child);
+			} else if (child instanceof TFolder) {
+				files.push(...this.getFilesInFolder(child));
+			}
+		}
+
+		return files;
+	}
+
+	private async updateLastRun(): Promise<void> {
+		this.data.lastRun = Date.now();
+		await this.saveData(this.data);
+	}
+
+	private async resetLastRun(): Promise<void> {
+		this.data.lastRun = null;
+		await this.saveData(this.data);
+		new Notice("Last run timestamp reset. Next run will return all files.");
+	}
+
+	private async syncCards(files: TFile[], statusBar: HTMLElement): Promise<boolean> {
+		new Notice("Connecting...");
+
+		let config;
+		try {
+			config = await getConfig(deckName, modelName);
+			if (!config) {
+				throw new Error("No config returned");
+			}
+		} catch (err) {
+			new Notice("Was not able to connect to Anki! Try again.");
+			statusBar.setText("");
+			return false;
+		}
+		new Notice("Connected. Now processing.");
+
+		for (let i = 0; i < files.length; i++) {
+			const file = files[i];
 			if (!file) continue;
+			statusBar.setText(`⚙️ Processing: ${i + 1} / ${files.length} — ${file.name}`);
 			const cardFile = await CardFile.load(this.app, file);
 			const cardsToSync = filterValidCards(cardFile.cards);
 			const results = await syncNotes(cardsToSync, config);
 			const updates = generateUpdates(cardsToSync, results);
 			await cardFile.writeCards(updates);
 		}
+
+		statusBar.setText("✅ Done!");
+		new Notice(`Finished processing ${files.length} files.`);
+		setTimeout(() => statusBar.setText(""), 5000);
+		return true;
 	}
 
 	/*
@@ -114,7 +190,7 @@ export default class ClozePlugin extends Plugin {
 			for (const match of text.matchAll(this.clozeRe)) {
 				const slice = text.slice(lastIndex, match.index)
 				if (slice) fragment.append(slice);
-				fragment.createSpan({ 
+				fragment.createSpan({
 					text: match[1],
 					cls: 'cloze',
 				});

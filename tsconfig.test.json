@@ -4,7 +4,6 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "types": ["jest", "node"],
-    // Allows importing the __mocks__ stub as if it were the real package.
     "paths": {
       "obsidian": ["./__mocks__/obsidian.ts"],
       "anki-connect": ["./__mocks__/anki-connect.ts"]

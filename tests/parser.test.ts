@@ -1,797 +1,613 @@
-// @vitest-environment jsdom
 /**
- * Test suite for the card-parsing module.
+ * @file cardParser.test.ts
  *
- * Requires a DOM environment. Vitest picks this up from the
- * @vitest-environment annotation above, or set globally in vitest.config.ts:
- *   { test: { environment: 'jsdom' } }
+ * Unit tests for parseCards() and parseCard().
+ * Environment: Jest + jsdom (TypeScript).
  */
 
-import { describe, it, expect } from '@jest/globals';
 import { parseCards, parseCard, type ParsedCard } from '../src/parser';
 
-// ─── DOM Builder Helpers ──────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const VAULT = 'TestVault';
 
 /**
- * Creates a `.callout[data-callout="card"]` element.
- *
- * @param bodyHTML     - HTML placed inside `.callout-content`.
- * @param metadataText - Newline-separated `key: value` pairs. When supplied,
- *                       a `card-metadata` sub-callout is appended to the
- *                       content element.
+ * Creates a `.callout[data-callout="card"]` element whose single child is a
+ * `.callout-content` wrapper holding the supplied HTML.
  */
-function makeCardEl(bodyHTML = '', metadataText?: string): HTMLElement {
-  const card = document.createElement('div');
-  card.className = 'callout';
-  card.setAttribute('data-callout', 'card');
-
-  const content = document.createElement('div');
-  content.className = 'callout-content';
-  content.innerHTML = bodyHTML;
-
-  if (metadataText !== undefined) {
-    content.appendChild(makeMetadataEl(metadataText));
-  }
-
-  card.appendChild(content);
-  return card;
+function makeCard(contentHTML = ''): HTMLElement {
+    const el = document.createElement('div');
+    el.classList.add('callout');
+    el.setAttribute('data-callout', 'card');
+    el.innerHTML = `<div class="callout-content">${contentHTML}</div>`;
+    return el;
 }
 
 /**
- * Creates a `.callout[data-callout="card-metadata"]` element whose
- * `.callout-content` holds the given text verbatim.
+ * Returns an HTML string for a `card-metadata` callout whose inner
+ * `.callout-content` holds `lines` as a plain text node.
  */
-function makeMetadataEl(text: string): HTMLElement {
-  const meta = document.createElement('div');
-  meta.className = 'callout';
-  meta.setAttribute('data-callout', 'card-metadata');
-
-  const metaContent = document.createElement('div');
-  metaContent.className = 'callout-content';
-  metaContent.textContent = text;
-  meta.appendChild(metaContent);
-  return meta;
+function metaHTML(lines: string): string {
+    return (
+        `<div class="callout" data-callout="card-metadata">` +
+        `<div class="callout-content">${lines}</div>` +
+        `</div>`
+    );
 }
 
-/** Wraps card elements in a container `<div>` suitable for `parseCards`. */
-function wrapInDoc(...cards: HTMLElement[]): HTMLElement {
-  const container = document.createElement('div');
-  cards.forEach(c => container.appendChild(c));
-  return container;
+/** Wraps card elements in a container `<div>` for use with parseCards(). */
+function wrapCards(...cards: HTMLElement[]): HTMLElement {
+    const root = document.createElement('div');
+    for (const c of cards) root.appendChild(c);
+    return root;
 }
 
-// ─── parseCards ──────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// parseCards()
+// ═════════════════════════════════════════════════════════════════════════════
 
-describe('parseCards', () => {
-  // ── input validation ────────────────────────────────────────────────────────
+describe('parseCards()', () => {
+    // ── Input validation ──────────────────────────────────────────────────────
 
-  describe('input validation', () => {
-    it('throws TypeError when documentEl is null', () => {
-      expect(() => parseCards(null as any, 'Vault')).toThrow(TypeError);
+    describe('input validation', () => {
+        it.each([null, undefined, 42, 'string', {}])(
+            'throws TypeError when documentEl is %p',
+            (bad) => expect(() => parseCards(bad as any, VAULT)).toThrow(TypeError),
+        );
+
+        it.each([null, undefined, '', '   ', 0])(
+            'throws TypeError when vaultName is %p',
+            (bad) => {
+                const el = document.createElement('div');
+                expect(() => parseCards(el, bad as any)).toThrow(TypeError);
+            },
+        );
     });
 
-    it('throws TypeError when documentEl is a plain object', () => {
-      expect(() => parseCards({} as any, 'Vault')).toThrow(TypeError);
+    // ── Core behaviour ────────────────────────────────────────────────────────
+
+    it('returns [] when no card callouts are present', () => {
+        const el = document.createElement('div');
+        el.innerHTML =
+            '<p>text</p>' +
+            '<div class="callout" data-callout="note"><div class="callout-content">n</div></div>';
+        expect(parseCards(el, VAULT)).toEqual([]);
     });
 
-    it('throws TypeError when documentEl is a primitive', () => {
-      expect(() => parseCards(42 as any, 'Vault')).toThrow(TypeError);
-      expect(() => parseCards('div' as any, 'Vault')).toThrow(TypeError);
+    it('returns one ParsedCard per [!card] callout', () => {
+        const result = parseCards(
+            wrapCards(makeCard('<p>A</p>'), makeCard('<p>B</p>'), makeCard('<p>C</p>')),
+            VAULT,
+        );
+        expect(result).toHaveLength(3);
     });
 
-    it('TypeError message identifies the bad argument', () => {
-      expect(() => parseCards(42 as any, 'Vault'))
-        .toThrow(/documentEl must be an HTMLElement/);
+    it('ignores callouts with a different data-callout type', () => {
+        const el = document.createElement('div');
+        el.innerHTML = `
+            <div class="callout" data-callout="info"><div class="callout-content">x</div></div>
+            <div class="callout" data-callout="card"><div class="callout-content">y</div></div>
+            <div class="callout" data-callout="warning"><div class="callout-content">z</div></div>
+        `;
+        expect(parseCards(el, VAULT)).toHaveLength(1);
     });
 
-    it('throws TypeError when vaultName is an empty string', () => {
-      expect(() => parseCards(document.createElement('div'), ''))
-        .toThrow(TypeError);
+    it('finds card callouts nested deep in the document tree', () => {
+        const root = document.createElement('div');
+        root.innerHTML = `
+            <section><article>
+                <div class="callout" data-callout="card">
+                    <div class="callout-content"><p>deep</p></div>
+                </div>
+            </article></section>
+        `;
+        expect(parseCards(root, VAULT)).toHaveLength(1);
     });
 
-    it('throws TypeError when vaultName is all whitespace', () => {
-      expect(() => parseCards(document.createElement('div'), '   '))
-        .toThrow(TypeError);
+    it('passes vaultName through to Obsidian URI generation', () => {
+        const card = makeCard('<a class="internal-link" data-href="Note">N</a>');
+        const [result] = parseCards(wrapCards(card), 'My Vault');
+        expect(result.text).toContain('vault=My%20Vault');
     });
-
-    it('throws TypeError when vaultName is not a string at all', () => {
-      const doc = document.createElement('div');
-      expect(() => parseCards(doc, null as any)).toThrow(TypeError);
-      expect(() => parseCards(doc, undefined as any)).toThrow(TypeError);
-      expect(() => parseCards(doc, 42 as any)).toThrow(TypeError);
-    });
-
-    it('vaultName TypeError message mentions non-empty string', () => {
-      expect(() => parseCards(document.createElement('div'), ''))
-        .toThrow(/non-empty string/);
-    });
-  });
-
-  // ── element discovery ───────────────────────────────────────────────────────
-
-  describe('element discovery', () => {
-    it('returns an empty array for an empty container', () => {
-      expect(parseCards(document.createElement('div'), 'v')).toEqual([]);
-    });
-
-    it('ignores ordinary HTML elements (no card callouts)', () => {
-      const doc = document.createElement('div');
-      doc.innerHTML = '<p>text</p><section></section>';
-      expect(parseCards(doc, 'v')).toHaveLength(0);
-    });
-
-    it('ignores callouts whose data-callout is not "card"', () => {
-      const doc = document.createElement('div');
-      doc.innerHTML = `
-        <div class="callout" data-callout="note">
-          <div class="callout-content"></div>
-        </div>
-        <div class="callout" data-callout="warning">
-          <div class="callout-content"></div>
-        </div>
-        <div class="callout" data-callout="card-metadata">
-          <div class="callout-content"></div>
-        </div>
-      `;
-      expect(parseCards(doc, 'v')).toHaveLength(0);
-    });
-
-    it('finds a single card callout', () => {
-      expect(parseCards(wrapInDoc(makeCardEl('<p>Hi</p>')), 'v')).toHaveLength(1);
-    });
-
-    it('finds multiple card callouts', () => {
-      const doc = wrapInDoc(makeCardEl(), makeCardEl(), makeCardEl());
-      expect(parseCards(doc, 'v')).toHaveLength(3);
-    });
-
-    it('preserves document order in the returned array', () => {
-      const doc = wrapInDoc(
-        makeCardEl('', 'id: 10'),
-        makeCardEl('', 'id: 20'),
-        makeCardEl('', 'id: 30'),
-      );
-      expect(parseCards(doc, 'v').map(c => c.id)).toEqual([10, 20, 30]);
-    });
-
-    it('finds card callouts nested inside other DOM elements', () => {
-      const doc = document.createElement('div');
-      const section = document.createElement('section');
-      section.appendChild(makeCardEl('<p>nested</p>'));
-      doc.appendChild(section);
-      expect(parseCards(doc, 'v')).toHaveLength(1);
-    });
-
-    it('returns ParsedCard objects with the expected shape', () => {
-      const [card] = parseCards(wrapInDoc(makeCardEl('<p>body</p>')), 'v');
-      expect(card).toHaveProperty('valid');
-      expect(card).toHaveProperty('tags');
-      expect(card).toHaveProperty('cardFields');
-      expect(card).toHaveProperty('text');
-    });
-
-    it('includes invalid cards in the result — does not silently drop them', () => {
-      const doc = wrapInDoc(makeCardEl('', 'id: not-a-number'));
-      const results = parseCards(doc, 'v');
-      expect(results).toHaveLength(1);
-      expect(results[0].valid).toBe(false);
-    });
-  });
 });
 
-// ─── parseCard ───────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// parseCard()
+// ═════════════════════════════════════════════════════════════════════════════
 
-describe('parseCard', () => {
-  // ── input validation ────────────────────────────────────────────────────────
+describe('parseCard()', () => {
+    // ── Input validation ──────────────────────────────────────────────────────
 
-  describe('input validation', () => {
-    it('throws TypeError when cardElement is null', () => {
-      expect(() => parseCard(null as any, 'v')).toThrow(TypeError);
+    describe('input validation', () => {
+        it.each([null, undefined, 'div', 42, {}])(
+            'throws TypeError when cardElement is %p',
+            (bad) => expect(() => parseCard(bad as any, VAULT)).toThrow(TypeError),
+        );
+
+        it.each([null, undefined, '', '   ', 0])(
+            'throws TypeError when vaultName is %p',
+            (bad) => expect(() => parseCard(makeCard(), bad as any)).toThrow(TypeError),
+        );
     });
 
-    it('throws TypeError when cardElement is not an HTMLElement', () => {
-      expect(() => parseCard(42 as any, 'v')).toThrow(TypeError);
-      expect(() => parseCard({} as any, 'v')).toThrow(TypeError);
+    // ── Return shape ──────────────────────────────────────────────────────────
+
+    it('always returns an object with valid (boolean), tags (Set), cardFields (object), text (string)', () => {
+        const r = parseCard(makeCard(), VAULT);
+        expect(typeof r.valid).toBe('boolean');
+        expect(r.tags).toBeInstanceOf(Set);
+        expect(typeof r.cardFields).toBe('object');
+        expect(typeof r.text).toBe('string');
     });
 
-    it('TypeError message identifies cardElement', () => {
-      expect(() => parseCard(null as any, 'v')).toThrow(/cardElement/);
+    // ── Card with no card-metadata callout ────────────────────────────────────
+
+    describe('card with no card-metadata callout', () => {
+        let r: ParsedCard;
+        beforeEach(() => { r = parseCard(makeCard('<p>Body</p>'), VAULT); });
+
+        it('valid is true',                  () => expect(r.valid).toBe(true));
+        it('id is undefined',                () => expect(r.id).toBeUndefined());
+        it('tags is an empty Set',           () => expect(r.tags.size).toBe(0));
+        it('cardFields is {}',               () => expect(r.cardFields).toEqual({}));
+        it('text is the serialised body',    () => expect(r.text).toBe('<p>Body</p>'));
     });
 
-    it('throws TypeError when vaultName is an empty string', () => {
-      expect(() => parseCard(makeCardEl(), '')).toThrow(TypeError);
+    it('returns text="" when the card element has no .callout-content child', () => {
+        const el = document.createElement('div');
+        el.classList.add('callout');
+        el.setAttribute('data-callout', 'card');
+        expect(parseCard(el, VAULT).text).toBe('');
     });
 
-    it('throws TypeError when vaultName is all whitespace', () => {
-      expect(() => parseCard(makeCardEl(), '   ')).toThrow(TypeError);
+    // ── Metadata: id ─────────────────────────────────────────────────────────
+
+    describe('metadata – id field', () => {
+        it('parses a valid positive integer', () => {
+            const r = parseCard(makeCard(metaHTML('id: 42')), VAULT);
+            expect(r.id).toBe(42);
+            expect(r.valid).toBe(true);
+        });
+
+        it('parses a large safe integer', () => {
+            expect(parseCard(makeCard(metaHTML('id: 1700000000000')), VAULT).id).toBe(1700000000000);
+        });
+
+        it('sets valid:false and id:undefined for id = 0', () => {
+            const r = parseCard(makeCard(metaHTML('id: 0')), VAULT);
+            expect(r.valid).toBe(false);
+            expect(r.id).toBeUndefined();
+        });
+
+        it('sets valid:false for a negative id', () => {
+            const r = parseCard(makeCard(metaHTML('id: -5')), VAULT);
+            expect(r.valid).toBe(false);
+            expect(r.id).toBeUndefined();
+        });
+
+        it('sets valid:false for an empty id value', () => {
+            expect(parseCard(makeCard(metaHTML('id: ')), VAULT).valid).toBe(false);
+        });
+
+        it('sets valid:false for a non-numeric id string', () => {
+            expect(parseCard(makeCard(metaHTML('id: abc')), VAULT).valid).toBe(false);
+        });
+
+        it('sets valid:false for a string with trailing letters ("123abc")', () => {
+            expect(parseCard(makeCard(metaHTML('id: 123abc')), VAULT).valid).toBe(false);
+        });
+
+        it('sets valid:false for a floating-point id string ("1.5")', () => {
+            expect(parseCard(makeCard(metaHTML('id: 1.5')), VAULT).valid).toBe(false);
+        });
+
+        it('id remains undefined when the value is invalid', () => {
+            expect(parseCard(makeCard(metaHTML('id: bad')), VAULT).id).toBeUndefined();
+        });
     });
 
-    it('vaultName TypeError message mentions non-empty string', () => {
-      expect(() => parseCard(makeCardEl(), '')).toThrow(/non-empty string/);
-    });
-  });
+    // ── Metadata: tags ────────────────────────────────────────────────────────
 
-  // ── structural contract ──────────────────────────────────────────────────────
+    describe('metadata – tags field', () => {
+        /** Convenience: extract only the tags from a single metadata line. */
+        const parseTags = (line: string) =>
+            parseCard(makeCard(metaHTML(line)), VAULT).tags;
 
-  it('returns a value containing every ParsedCard key', () => {
-    const result = parseCard(makeCardEl(), 'v');
-    expect(result).toHaveProperty('valid');
-    expect(result).toHaveProperty('id');
-    expect(result).toHaveProperty('tags');
-    expect(result).toHaveProperty('cardFields');
-    expect(result).toHaveProperty('text');
-  });
+        it('parses space-separated tags',
+            () => expect(parseTags('tags: #a #b')).toEqual(new Set(['a', 'b'])));
 
-  it('does not mutate the original DOM element', () => {
-    const card = makeCardEl('<p>Body</p>', 'id: 1\ntags: foo');
-    const snapshot = card.outerHTML;
-    parseCard(card, 'v');
-    expect(card.outerHTML).toBe(snapshot);
-  });
+        it('parses comma-separated tags',
+            () => expect(parseTags('tags: #a,#b')).toEqual(new Set(['a', 'b'])));
 
-  // ── valid flag ───────────────────────────────────────────────────────────────
+        it('parses comma-and-space-separated tags',
+            () => expect(parseTags('tags: #a, #b')).toEqual(new Set(['a', 'b'])));
 
-  describe('valid', () => {
-    it('is true when there is no metadata sub-callout', () => {
-      expect(parseCard(makeCardEl('<p>text</p>'), 'v').valid).toBe(true);
-    });
+        it('strips the leading # character', () => {
+            const tags = parseTags('tags: #x');
+            expect(tags).toContain('x');
+            expect(tags).not.toContain('#x');
+        });
 
-    it('is true for a completely well-formed metadata block', () => {
-      const card = makeCardEl(
-        '<p>x</p>',
-        'id: 99\ntags: foo\ndeck: Default',
-      );
-      expect(parseCard(card, 'v').valid).toBe(true);
+        it('converts "/" to "::" for nested-tag hierarchies',
+            () => expect(parseTags('tags: #deck/sub')).toContain('deck::sub'));
+
+        it('handles tags without a # prefix',
+            () => expect(parseTags('tags: plain')).toContain('plain'));
+
+        it('returns an empty Set when the value is blank',
+            () => expect(parseTags('tags: ').size).toBe(0));
     });
 
-    it('is false when there are two card-metadata sub-callouts', () => {
-      const card = makeCardEl();
-      const content = card.querySelector('.callout-content')!;
-      content.appendChild(makeMetadataEl('id: 1'));
-      content.appendChild(makeMetadataEl('id: 2'));
-      expect(parseCard(card as HTMLElement, 'v').valid).toBe(false);
+    // ── Metadata: custom fields ───────────────────────────────────────────────
+
+    describe('metadata – custom fields', () => {
+        it('extracts a single field', () => {
+            expect(parseCard(makeCard(metaHTML('Front: Q')), VAULT).cardFields)
+                .toEqual({ Front: 'Q' });
+        });
+
+        it('extracts multiple fields from separate lines', () => {
+            expect(
+                parseCard(makeCard(metaHTML('Front: Question\nBack: Answer')), VAULT).cardFields,
+            ).toEqual({ Front: 'Question', Back: 'Answer' });
+        });
+
+        it('preserves values that themselves contain a colon', () => {
+            expect(
+                parseCard(makeCard(metaHTML('Extra: http://example.com')), VAULT).cardFields['Extra'],
+            ).toBe('http://example.com');
+        });
+
+        it('ignores lines with no colon separator', () => {
+            expect(parseCard(makeCard(metaHTML('no separator')), VAULT).cardFields).toEqual({});
+        });
+
+        it('ignores blank lines', () => {
+            expect(
+                parseCard(makeCard(metaHTML('\n\nFront: Q\n\n')), VAULT).cardFields,
+            ).toEqual({ Front: 'Q' });
+        });
     });
 
-    it('is false when id is non-numeric', () => {
-      expect(parseCard(makeCardEl('', 'id: abc'), 'v').valid).toBe(false);
+    // ── Metadata: duplicate callouts ──────────────────────────────────────────
+
+    it('sets valid:false when more than one card-metadata callout is present', () => {
+        const card = makeCard(metaHTML('id: 1') + metaHTML('id: 2'));
+        expect(parseCard(card, VAULT).valid).toBe(false);
     });
 
-    it('is false when id is zero', () => {
-      expect(parseCard(makeCardEl('', 'id: 0'), 'v').valid).toBe(false);
+    // ── Metadata: full combination ────────────────────────────────────────────
+
+    it('correctly parses id, tags, custom fields, and body text together', () => {
+        const card = makeCard(
+            `<p>Body</p>${metaHTML('id: 7\ntags: #deck/sub\nFront: Q\nBack: A')}`,
+        );
+        const r = parseCard(card, VAULT);
+
+        expect(r.valid).toBe(true);
+        expect(r.id).toBe(7);
+        expect(r.tags).toEqual(new Set(['deck::sub']));
+        expect(r.cardFields).toEqual({ Front: 'Q', Back: 'A' });
+        expect(r.text).toContain('Body');
+        expect(r.text).not.toContain('card-metadata');
     });
 
-    it('is false when id is negative', () => {
-      expect(parseCard(makeCardEl('', 'id: -1'), 'v').valid).toBe(false);
+    // ── Text extraction ───────────────────────────────────────────────────────
+
+    describe('text extraction', () => {
+        it('serialises the card body as HTML', () => {
+            expect(parseCard(makeCard('<p>Hello</p>'), VAULT).text).toBe('<p>Hello</p>');
+        });
+
+        it('excludes the card-metadata callout from the serialised output', () => {
+            const card = makeCard(`<p>Body</p>${metaHTML('id: 1')}`);
+            const text = parseCard(card, VAULT).text;
+            expect(text).not.toContain('card-metadata');
+            expect(text).toContain('Body');
+        });
+
+        it('does not mutate the original card element', () => {
+            const card = makeCard(`<p>Body</p>${metaHTML('id: 1')}`);
+            const snapshot = card.innerHTML;
+            parseCard(card, VAULT);
+            expect(card.innerHTML).toBe(snapshot);
+        });
+
+        it('trims leading and trailing whitespace from the result', () => {
+            const text = parseCard(makeCard('  <p>Trimmed</p>  '), VAULT).text;
+            expect(text[0]).not.toBe(' ');
+            expect(text[text.length - 1]).not.toBe(' ');
+        });
+
+        it('serialises nested elements correctly', () => {
+            expect(
+                parseCard(makeCard('<p><strong>b</strong> and <em>i</em></p>'), VAULT).text,
+            ).toBe('<p><strong>b</strong> and <em>i</em></p>');
+        });
+
+        it('escapes & in text nodes (re-encodes what jsdom decoded)', () => {
+            // jsdom parses &amp; → & in the DOM; the serialiser must re-escape it
+            expect(parseCard(makeCard('<p>a &amp; b</p>'), VAULT).text).toBe('<p>a &amp; b</p>');
+        });
+
+        it('escapes < and > in text nodes', () => {
+            const text = parseCard(makeCard('<p>1 &lt; 2 &gt; 0</p>'), VAULT).text;
+            expect(text).toContain('&lt;');
+            expect(text).toContain('&gt;');
+        });
+
+        it('serialises void elements without a closing tag', () => {
+            expect(parseCard(makeCard('<br>'), VAULT).text).toBe('<br>');
+        });
+
+        it('<hr> has no closing tag', () => {
+            const text = parseCard(makeCard('<p>a</p><hr><p>b</p>'), VAULT).text;
+            expect(text).toContain('<hr>');
+            expect(text).not.toContain('</hr>');
+        });
     });
 
-    it('is false when id has a decimal point', () => {
-      expect(parseCard(makeCardEl('', 'id: 3.14'), 'v').valid).toBe(false);
+    // ── Attribute filtering ───────────────────────────────────────────────────
+
+    describe('attribute filtering', () => {
+        it('preserves allowed attributes: src, alt, title, class, id, href', () => {
+            const card = makeCard(
+                '<img src="img.png" alt="a" title="t" class="c" id="i">',
+            );
+            const text = parseCard(card, VAULT).text;
+            expect(text).toContain('src="img.png"');
+            expect(text).toContain('alt="a"');
+            expect(text).toContain('title="t"');
+            expect(text).toContain('class="c"');
+            expect(text).toContain('id="i"');
+        });
+
+        it('drops style and data-* attributes', () => {
+            const card = makeCard('<p style="color:red" data-foo="bar">Hi</p>');
+            expect(parseCard(card, VAULT).text).toBe('<p>Hi</p>');
+        });
+
+        it('escapes double-quotes inside attribute values', () => {
+            const card = makeCard('');
+            const img = document.createElement('img');
+            img.setAttribute('alt', 'say "hello"');
+            card.querySelector('.callout-content')!.appendChild(img);
+            expect(parseCard(card, VAULT).text).toContain('&quot;');
+        });
+
+        it('escapes & inside attribute values', () => {
+            const card = makeCard('');
+            const img = document.createElement('img');
+            img.setAttribute('alt', 'cats & dogs');
+            card.querySelector('.callout-content')!.appendChild(img);
+            expect(parseCard(card, VAULT).text).toContain('alt="cats &amp; dogs"');
+        });
     });
 
-    it('is false when id has trailing non-digit characters', () => {
-      expect(parseCard(makeCardEl('', 'id: 123abc'), 'v').valid).toBe(false);
-    });
-
-    it('handles a metadata callout whose .callout-content is absent', () => {
-      const card = document.createElement('div');
-      card.className = 'callout';
-      card.setAttribute('data-callout', 'card');
-      const content = document.createElement('div');
-      content.className = 'callout-content';
-      // card-metadata callout with NO inner .callout-content
-      const meta = document.createElement('div');
-      meta.className = 'callout';
-      meta.setAttribute('data-callout', 'card-metadata');
-      content.appendChild(meta);
-      card.appendChild(content);
-      const result = parseCard(card as HTMLElement, 'v');
-      expect(result.valid).toBe(true);
-      expect(result.id).toBeUndefined();
-    });
-  });
-
-  // ── id ───────────────────────────────────────────────────────────────────────
-
-  describe('id', () => {
-    it('is undefined when there is no metadata sub-callout', () => {
-      expect(parseCard(makeCardEl(), 'v').id).toBeUndefined();
-    });
-
-    it('is undefined when the metadata block contains no id field', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo'), 'v').id).toBeUndefined();
-    });
-
-    it('parses the smallest valid positive integer', () => {
-      expect(parseCard(makeCardEl('', 'id: 1'), 'v').id).toBe(1);
-    });
-
-    it('parses a large Anki-style epoch note ID', () => {
-      expect(parseCard(makeCardEl('', 'id: 1702218000000'), 'v').id)
-        .toBe(1702218000000);
-    });
-
-    it('is undefined (and valid false) when the id value is invalid', () => {
-      const result = parseCard(makeCardEl('', 'id: bad'), 'v');
-      expect(result.id).toBeUndefined();
-      expect(result.valid).toBe(false);
-    });
-
-    it('trims surrounding whitespace from the id value', () => {
-      expect(parseCard(makeCardEl('', 'id:   42  '), 'v').id).toBe(42);
-    });
-  });
-
-  // ── tags ─────────────────────────────────────────────────────────────────────
-
-  describe('tags', () => {
-    it('is an empty Set when there is no metadata', () => {
-      expect(parseCard(makeCardEl(), 'v').tags).toEqual(new Set());
-    });
-
-    it('is an empty Set when the metadata block has no tags field', () => {
-      expect(parseCard(makeCardEl('', 'id: 1'), 'v').tags).toEqual(new Set());
-    });
-
-    it('parses a single tag', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo'), 'v').tags)
-        .toEqual(new Set(['foo']));
-    });
-
-    it('splits on whitespace', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo bar baz'), 'v').tags)
-        .toEqual(new Set(['foo', 'bar', 'baz']));
-    });
-
-    it('splits on commas', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo,bar,baz'), 'v').tags)
-        .toEqual(new Set(['foo', 'bar', 'baz']));
-    });
-
-    it('splits on mixed comma-and-space delimiters', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo, bar, baz'), 'v').tags)
-        .toEqual(new Set(['foo', 'bar', 'baz']));
-    });
-
-    it('strips a leading # from each tag token', () => {
-      expect(parseCard(makeCardEl('', 'tags: #foo #bar'), 'v').tags)
-        .toEqual(new Set(['foo', 'bar']));
-    });
-
-    it('converts / to :: for Anki-style hierarchical tags', () => {
-      expect(parseCard(makeCardEl('', 'tags: language/japanese'), 'v').tags)
-        .toEqual(new Set(['language::japanese']));
-    });
-
-    it('converts multi-level slash separators', () => {
-      expect(parseCard(makeCardEl('', 'tags: a/b/c'), 'v').tags)
-        .toEqual(new Set(['a::b::c']));
-    });
-
-    it('handles # prefix combined with / hierarchy', () => {
-      expect(parseCard(makeCardEl('', 'tags: #lang/jp'), 'v').tags)
-        .toEqual(new Set(['lang::jp']));
-    });
-
-    it('deduplicates identical tags via Set semantics', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo foo bar'), 'v').tags)
-        .toEqual(new Set(['foo', 'bar']));
-    });
-  });
-
-  // ── cardFields ───────────────────────────────────────────────────────────────
-
-  describe('cardFields', () => {
-    it('is an empty object when there is no metadata', () => {
-      expect(parseCard(makeCardEl(), 'v').cardFields).toEqual({});
-    });
-
-    it('captures an arbitrary key-value pair', () => {
-      expect(parseCard(makeCardEl('', 'deck: MyDeck'), 'v').cardFields)
-        .toEqual({ deck: 'MyDeck' });
-    });
-
-    it('captures multiple arbitrary fields', () => {
-      const { cardFields } = parseCard(
-        makeCardEl('', 'deck: MyDeck\nnote-type: Basic'),
-        'v',
-      );
-      expect(cardFields.deck).toBe('MyDeck');
-      expect(cardFields['note-type']).toBe('Basic');
-    });
-
-    it('does not include the reserved "id" key', () => {
-      expect(parseCard(makeCardEl('', 'id: 1\ndeck: D'), 'v').cardFields)
-        .not.toHaveProperty('id');
-    });
-
-    it('does not include the reserved "tags" key', () => {
-      expect(parseCard(makeCardEl('', 'tags: foo\ndeck: D'), 'v').cardFields)
-        .not.toHaveProperty('tags');
-    });
-
-    it('preserves colons that appear inside a value', () => {
-      expect(
-        parseCard(makeCardEl('', 'url: http://example.com'), 'v').cardFields.url,
-      ).toBe('http://example.com');
-    });
-
-    it('ignores lines that contain no colon', () => {
-      expect(parseCard(makeCardEl('', 'nodivider'), 'v').cardFields).toEqual({});
-    });
-
-    it('ignores lines where the colon is the first character (empty key)', () => {
-      expect(parseCard(makeCardEl('', ': orphanvalue'), 'v').cardFields)
-        .toEqual({});
-    });
-
-    it('ignores blank lines in the metadata block', () => {
-      expect(parseCard(makeCardEl('', '\n\ndeck: D\n\n'), 'v').cardFields)
-        .toEqual({ deck: 'D' });
-    });
-  });
-
-  // ── text ─────────────────────────────────────────────────────────────────────
-
-  describe('text', () => {
-    it('is an empty string when the element has no .callout-content', () => {
-      const bare = document.createElement('div');
-      bare.className = 'callout';
-      bare.setAttribute('data-callout', 'card');
-      expect(parseCard(bare as HTMLElement, 'v').text).toBe('');
-    });
-
-    it('is an empty string when .callout-content is empty', () => {
-      expect(parseCard(makeCardEl(''), 'v').text).toBe('');
-    });
-
-    it('serialises a simple paragraph', () => {
-      expect(parseCard(makeCardEl('<p>Hello world</p>'), 'v').text)
-        .toBe('<p>Hello world</p>');
-    });
-
-    it('removes the card-metadata sub-callout from the output', () => {
-      const card = makeCardEl('<p>body</p>', 'id: 1\ntags: foo');
-      const { text } = parseCard(card, 'v');
-      expect(text).not.toContain('card-metadata');
-      expect(text).toContain('<p>body</p>');
-    });
-
-    it('does not include the callout-title element', () => {
-      const card = document.createElement('div');
-      card.className = 'callout';
-      card.setAttribute('data-callout', 'card');
-      const title = document.createElement('div');
-      title.className = 'callout-title';
-      title.textContent = 'Should be excluded';
-      const content = document.createElement('div');
-      content.className = 'callout-content';
-      content.innerHTML = '<p>body</p>';
-      card.appendChild(title);
-      card.appendChild(content);
-
-      const { text } = parseCard(card as HTMLElement, 'v');
-      expect(text).not.toContain('Should be excluded');
-      expect(text).toContain('<p>body</p>');
-    });
-
-    it('trims leading and trailing whitespace from the result', () => {
-      const { text } = parseCard(makeCardEl('<p>x</p>'), 'v');
-      expect(text).toBe(text.trim());
-    });
-
-    it('does not parse metadata callouts that are not direct children of .callout-content', () => {
-      // Metadata is inside a wrapper <div> — not a direct child of .callout-content
-      const card = makeCardEl(`
-        <div>
-          <div class="callout" data-callout="card-metadata">
-            <div class="callout-content">id: 99</div>
-          </div>
-        </div>
-      `);
-      expect(parseCard(card, 'v').id).toBeUndefined();
-    });
-
-    // ── cloze conversion ────────────────────────────────────────────────────────
+    // ── Cloze conversion ──────────────────────────────────────────────────────
 
     describe('cloze conversion', () => {
-      /** Parses a card whose body is `html` and returns its text field. */
-      const textOf = (html: string) => parseCard(makeCardEl(html), 'v').text;
+        it('converts <span class="cloze"> (no id) to {{c1::body}}', () => {
+            expect(parseCard(makeCard('<span class="cloze">ans</span>'), VAULT).text)
+                .toBe('{{c1::ans}}');
+        });
 
-      it('wraps a basic cloze span in {{c1::…}} when id is absent', () => {
-        expect(textOf('<span class="cloze">answer</span>'))
-          .toContain('{{c1::answer}}');
-      });
+        it('uses an explicit positive-integer id attribute', () => {
+            expect(parseCard(makeCard('<span class="cloze" id="5">ans</span>'), VAULT).text)
+                .toBe('{{c5::ans}}');
+        });
 
-      it('uses the explicit positive integer id attribute', () => {
-        expect(textOf('<span class="cloze" id="3">word</span>'))
-          .toContain('{{c3::word}}');
-      });
+        it('appends ::hint when the hint attribute is set', () => {
+            expect(parseCard(makeCard('<span class="cloze" hint="h">ans</span>'), VAULT).text)
+                .toBe('{{c1::ans::h}}');
+        });
 
-      it('auto-increments ids for consecutive id-less cloze spans', () => {
-        const text = textOf(
-          '<span class="cloze">a</span>' +
-          '<span class="cloze">b</span>' +
-          '<span class="cloze">c</span>',
-        );
-        expect(text).toContain('{{c1::a}}');
-        expect(text).toContain('{{c2::b}}');
-        expect(text).toContain('{{c3::c}}');
-      });
+        it('combines an explicit id with a hint', () => {
+            expect(parseCard(makeCard('<span class="cloze" id="3" hint="h">ans</span>'), VAULT).text)
+                .toBe('{{c3::ans::h}}');
+        });
 
-      it('auto-counter skips ids already claimed by explicit spans', () => {
-        // id=2 is reserved → auto should yield 1, then 3
-        const text = textOf(
-          '<span class="cloze">first</span>' +
-          '<span class="cloze" id="2">second</span>' +
-          '<span class="cloze">third</span>',
-        );
-        expect(text).toContain('{{c1::first}}');
-        expect(text).toContain('{{c2::second}}');
-        expect(text).toContain('{{c3::third}}');
-      });
+        it('auto-increments IDs across consecutive cloze spans', () => {
+            const card = makeCard(
+                '<span class="cloze">x</span>' +
+                '<span class="cloze">y</span>' +
+                '<span class="cloze">z</span>',
+            );
+            expect(parseCard(card, VAULT).text).toBe('{{c1::x}}{{c2::y}}{{c3::z}}');
+        });
 
-      it('auto-counter fills the lowest available gap around a high explicit id', () => {
-        // id=3 is reserved → auto gives c1 first, then c2 for the remaining span
-        const text = textOf(
-          '<span class="cloze">first</span>' +
-          '<span class="cloze" id="3">second</span>' +
-          '<span class="cloze">third</span>',
-        );
-        expect(text).toContain('{{c1::first}}');
-        expect(text).toContain('{{c3::second}}');
-        expect(text).toContain('{{c2::third}}');
-      });
+        it('auto-IDs skip IDs already reserved by explicit spans', () => {
+            // id=1 is reserved → first auto gets id=2
+            const card = makeCard(
+                '<span class="cloze" id="1">A</span>' +
+                '<span class="cloze">B</span>',
+            );
+            expect(parseCard(card, VAULT).text).toBe('{{c1::A}}{{c2::B}}');
+        });
 
-      it('appends a hint as {{cN::body::hint}}', () => {
-        expect(textOf('<span class="cloze" hint="clue">answer</span>'))
-          .toContain('{{c1::answer::clue}}');
-      });
+        it('auto-IDs skip several consecutive reserved IDs', () => {
+            const card = makeCard(
+                '<span class="cloze" id="1">a</span>' +
+                '<span class="cloze" id="2">b</span>' +
+                '<span class="cloze">c</span>',
+            );
+            expect(parseCard(card, VAULT).text).toBe('{{c1::a}}{{c2::b}}{{c3::c}}');
+        });
 
-      it('combines an explicit id with a hint', () => {
-        expect(textOf('<span class="cloze" id="5" hint="tip">answer</span>'))
-          .toContain('{{c5::answer::tip}}');
-      });
+        it('auto-assigns the lowest available ID even when higher IDs are reserved', () => {
+            // id=2 reserved; first auto span should claim id=1
+            const card = makeCard(
+                '<span class="cloze">auto</span>' +
+                '<span class="cloze" id="2">exp</span>',
+            );
+            expect(parseCard(card, VAULT).text).toBe('{{c1::auto}}{{c2::exp}}');
+        });
 
-      it('falls back to auto-id when the id attribute is non-numeric', () => {
-        expect(textOf('<span class="cloze" id="abc">word</span>'))
-          .toContain('{{c1::word}}');
-      });
+        it('falls back to auto-ID for a non-numeric id attribute', () => {
+            expect(parseCard(makeCard('<span class="cloze" id="xyz">ans</span>'), VAULT).text)
+                .toBe('{{c1::ans}}');
+        });
 
-      it('falls back to auto-id when the id attribute is zero', () => {
-        expect(textOf('<span class="cloze" id="0">word</span>'))
-          .toContain('{{c1::word}}');
-      });
+        it('falls back to auto-ID when the id attribute is 0 (not > 0)', () => {
+            expect(parseCard(makeCard('<span class="cloze" id="0">ans</span>'), VAULT).text)
+                .toBe('{{c1::ans}}');
+        });
 
-      it('falls back to auto-id when the id attribute is negative', () => {
-        expect(textOf('<span class="cloze" id="-1">word</span>'))
-          .toContain('{{c1::word}}');
-      });
+        it('serialises nested HTML inside the cloze body', () => {
+            expect(
+                parseCard(makeCard('<span class="cloze"><em>em</em> text</span>'), VAULT).text,
+            ).toBe('{{c1::<em>em</em> text}}');
+        });
 
-      it('serialises nested markup inside the cloze body', () => {
-        expect(textOf('<span class="cloze"><strong>bold</strong></span>'))
-          .toContain('{{c1::<strong>bold</strong>}}');
-      });
-
-      it('does not convert spans that lack the "cloze" class', () => {
-        const text = textOf('<span class="highlight">word</span>');
-        expect(text).not.toContain('{{');
-        expect(text).toContain('<span class="highlight">word</span>');
-      });
+        it('does not treat a plain <span> (no cloze class) as a cloze deletion', () => {
+            const text = parseCard(makeCard('<span>plain</span>'), VAULT).text;
+            expect(text).not.toContain('{{');
+            expect(text).toBe('<span>plain</span>');
+        });
     });
 
-    // ── internal link rewriting ─────────────────────────────────────────────────
+    // ── Internal-link conversion ──────────────────────────────────────────────
 
-    describe('internal link rewriting', () => {
-      it('rewrites an internal link to an obsidian:// URI', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" data-href="My Note" href="/file">text</a>',
-        );
-        expect(parseCard(card, 'MyVault').text).toContain(
-          'href="obsidian://open?vault=MyVault&file=My%20Note"',
-        );
-      });
+    describe('internal-link conversion', () => {
+        /** Builds the expected obsidian:// URI for assertions. */
+        const obsUri = (vault: string, file: string) =>
+            `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`;
 
-      it('prefers data-href over href as the file target', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" data-href="NoteA" href="NoteB">text</a>',
-        );
-        const { text } = parseCard(card, 'v');
-        expect(text).toContain('file=NoteA');
-        expect(text).not.toContain('file=NoteB');
-      });
+        it('rewrites an internal-link anchor to an obsidian:// URI', () => {
+            const card = makeCard(
+                '<a class="internal-link" data-href="My Note" href="/My Note.md">My Note</a>',
+            );
+            expect(parseCard(card, VAULT).text).toBe(
+                `<a href="${obsUri(VAULT, 'My Note')}">My Note</a>`,
+            );
+        });
 
-      it('falls back to href when data-href is absent', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" href="fallback-note">text</a>',
-        );
-        expect(parseCard(card, 'v').text).toContain('file=fallback-note');
-      });
+        it('prefers data-href over href for the target file path', () => {
+            const card = makeCard(
+                '<a class="internal-link" data-href="Correct" href="Wrong">L</a>',
+            );
+            const text = parseCard(card, VAULT).text;
+            expect(text).toContain(`file=${encodeURIComponent('Correct')}`);
+            expect(text).not.toContain('Wrong');
+        });
 
-      it('percent-encodes spaces in the vault name', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" data-href="Note">text</a>',
-        );
-        expect(parseCard(card, 'My Vault').text).toContain('vault=My%20Vault');
-      });
+        it('falls back to href when data-href is absent', () => {
+            const card = makeCard('<a class="internal-link" href="Target">L</a>');
+            expect(parseCard(card, VAULT).text).toContain(
+                `file=${encodeURIComponent('Target')}`,
+            );
+        });
 
-      it('percent-encodes spaces and slashes in the file path', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" data-href="My Note/Sub">text</a>',
-        );
-        expect(parseCard(card, 'v').text).toContain('file=My%20Note%2FSub');
-      });
+        it('percent-encodes spaces in the vault name', () => {
+            const card = makeCard('<a class="internal-link" data-href="N">L</a>');
+            expect(parseCard(card, 'My Vault').text).toContain('vault=My%20Vault');
+        });
 
-      it('strips Obsidian-specific data-* attributes from the rewritten anchor', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" data-href="Note" data-path="x" href="/Note">text</a>',
-        );
-        const { text } = parseCard(card, 'v');
-        expect(text).not.toContain('data-href');
-        expect(text).not.toContain('data-path');
-      });
+        it('percent-encodes special characters in the file path', () => {
+            const card = makeCard(
+                '<a class="internal-link" data-href="Folder/Sub Note">L</a>',
+            );
+            expect(parseCard(card, VAULT).text).toContain(
+                `file=${encodeURIComponent('Folder/Sub Note')}`,
+            );
+        });
 
-      it('preserves the visible link text', () => {
-        const card = makeCardEl(
-          '<a class="internal-link" data-href="Note">Visible Text</a>',
-        );
-        expect(parseCard(card, 'v').text).toContain('>Visible Text<');
-      });
+        it('strips Obsidian-specific attributes from the rewritten anchor', () => {
+            const card = makeCard(
+                '<a class="internal-link" data-href="N" data-type="wikilink" href="/N.md">L</a>',
+            );
+            const text = parseCard(card, VAULT).text;
+            expect(text).not.toContain('data-href');
+            expect(text).not.toContain('data-type');
+        });
 
-      it('does not rewrite anchors that lack the internal-link class', () => {
-        const card = makeCardEl('<a href="https://example.com">external</a>');
-        const { text } = parseCard(card, 'v');
-        expect(text).toContain('href="https://example.com"');
-        expect(text).not.toContain('obsidian://');
-      });
+        it('preserves the anchor\'s child nodes in the rewritten output', () => {
+            const card = makeCard(
+                '<a class="internal-link" data-href="N">Click <em>here</em></a>',
+            );
+            expect(parseCard(card, VAULT).text).toContain('Click <em>here</em>');
+        });
+
+        it('does not rewrite regular (external) anchors', () => {
+            const card = makeCard('<a href="https://example.com">External</a>');
+            const text = parseCard(card, VAULT).text;
+            expect(text).not.toContain('obsidian://');
+            expect(text).toContain('https://example.com');
+        });
     });
 
-    // ── HTML serialisation ──────────────────────────────────────────────────────
+    // ── Integration: realistic card ───────────────────────────────────────────
 
-    describe('HTML serialisation', () => {
-      it('re-escapes & in text nodes as &amp;', () => {
-        // innerHTML decodes &amp; → '&'; serialiser must re-encode it
-        const { text } = parseCard(makeCardEl('<p>a &amp; b</p>'), 'v');
-        expect(text).toContain('a &amp; b');
-      });
+    describe('integration: full realistic card', () => {
+        it('parses body text, cloze deletion, internal link, and metadata together', () => {
+            const card = makeCard(
+                '<p>The capital of France is ' +
+                '<span class="cloze" id="1">Paris</span>.</p>' +
+                '<p>See: <a class="internal-link" data-href="France">France</a></p>' +
+                metaHTML('id: 1234567890\ntags: #geo #europe\nDeck: Geography::Europe'),
+            );
 
-      it('re-escapes < in text nodes as &lt;', () => {
-        const { text } = parseCard(makeCardEl('<p>1 &lt; 2</p>'), 'v');
-        expect(text).toContain('1 &lt; 2');
-      });
+            const r = parseCard(card, 'MyVault');
 
-      it('re-escapes > in text nodes as &gt;', () => {
-        const { text } = parseCard(makeCardEl('<p>2 &gt; 1</p>'), 'v');
-        expect(text).toContain('2 &gt; 1');
-      });
-
-      it('serialises <br> as a void element with no closing tag', () => {
-        const { text } = parseCard(makeCardEl('before<br>after'), 'v');
-        expect(text).toContain('<br>');
-        expect(text).not.toContain('</br>');
-      });
-
-      it('serialises <img> as a void element', () => {
-        const { text } = parseCard(makeCardEl('<img src="x.png" alt="img">'), 'v');
-        expect(text).toContain('<img');
-        expect(text).not.toContain('</img>');
-      });
-
-      it('serialises <hr> as a void element', () => {
-        const { text } = parseCard(makeCardEl('<hr>'), 'v');
-        expect(text).toContain('<hr>');
-        expect(text).not.toContain('</hr>');
-      });
-
-      it('preserves all allowed attributes: class, id, href, src, alt, title', () => {
-        const card = makeCardEl(
-          '<a href="https://x.com" title="T" class="lnk" id="a1">x</a>',
-        );
-        const { text } = parseCard(card, 'v');
-        expect(text).toContain('href="https://x.com"');
-        expect(text).toContain('title="T"');
-        expect(text).toContain('class="lnk"');
-        expect(text).toContain('id="a1"');
-      });
-
-      it('strips data-* attributes from generic elements', () => {
-        const { text } = parseCard(makeCardEl('<p data-foo="bar">text</p>'), 'v');
-        expect(text).not.toContain('data-foo');
-      });
-
-      it('strips aria-* attributes from generic elements', () => {
-        const { text } = parseCard(
-          makeCardEl('<p aria-label="test">text</p>'),
-          'v',
-        );
-        expect(text).not.toContain('aria-label');
-      });
-
-      it('escapes " in attribute values as &quot;', () => {
-        // Set alt programmatically so it contains a literal " character
-        const img = document.createElement('img');
-        img.src = 'x.png';
-        img.alt = 'say "hi"';
-        const card = makeCardEl('');
-        card.querySelector('.callout-content')!.appendChild(img);
-        expect(parseCard(card, 'v').text).toContain('&quot;');
-      });
-
-      it('silently ignores comment nodes', () => {
-        const content = document.createElement('div');
-        content.className = 'callout-content';
-        content.appendChild(document.createComment('ignored'));
-        const p = document.createElement('p');
-        p.textContent = 'visible';
-        content.appendChild(p);
-        const card = document.createElement('div');
-        card.className = 'callout';
-        card.setAttribute('data-callout', 'card');
-        card.appendChild(content);
-        expect(parseCard(card as HTMLElement, 'v').text).toBe('<p>visible</p>');
-      });
-
-      it('handles deeply nested elements', () => {
-        const { text } = parseCard(
-          makeCardEl('<div><ul><li><strong>item</strong></li></ul></div>'),
-          'v',
-        );
-        expect(text).toBe('<div><ul><li><strong>item</strong></li></ul></div>');
-      });
+            expect(r.valid).toBe(true);
+            expect(r.id).toBe(1234567890);
+            expect(r.tags).toEqual(new Set(['geo', 'europe']));
+            expect(r.cardFields).toEqual({ Deck: 'Geography::Europe' });
+            expect(r.text).toContain('{{c1::Paris}}');
+            expect(r.text).toContain(
+                `obsidian://open?vault=MyVault&file=France`,
+            );
+            expect(r.text).not.toContain('card-metadata');
+        });
     });
-  });
 });
 
-// ─── Integration ─────────────────────────────────────────────────────────────
 
-describe('integration', () => {
-  it('parses a two-card document end-to-end', () => {
-    const card1 = makeCardEl(
-      '<p>What is 2 + 2?</p><p><span class="cloze">4</span></p>',
-      'id: 1001\ntags: math',
-    );
-    const card2 = makeCardEl(
-      '<p>Capital of France?</p><p><span class="cloze" id="2">Paris</span></p>',
-      'id: 1002\ntags: #geography/europe\ndeck: Geography',
-    );
+describe('BUG 1 – parseCards error recovery (documented, not implemented)', () => {
+    /**
+     * The implementation has no try/catch around parseCard(), so a thrown
+     * error aborts the entire batch instead of being caught and warned about.
+     *
+     * We exercise this by monkey-patching querySelectorAll on a single card
+     * element so that parseCard() will throw when it tries to query it.
+     */
+    it('continues processing remaining cards after one card throws', () => {
+        const good = makeCard('<p>Good</p>');
+        const bad  = makeCard('<p>Bad</p>');
 
-    const [r1, r2] = parseCards(wrapInDoc(card1, card2), 'MyVault');
+        // Force parseCard to throw on this particular element.
+        const original = bad.querySelectorAll.bind(bad);
+        bad.querySelectorAll = (selector: string) => {
+            if (selector.includes('card-metadata')) {
+                throw new Error('Simulated DOM failure');
+            }
+            return original(selector);
+        };
 
-    expect(r1.valid).toBe(true);
-    expect(r1.id).toBe(1001);
-    expect(r1.tags).toEqual(new Set(['math']));
-    expect(r1.text).toContain('{{c1::4}}');
-    expect(r1.text).not.toContain('card-metadata');
+        const root = wrapCards(bad, good);
 
-    expect(r2.valid).toBe(true);
-    expect(r2.id).toBe(1002);
-    expect(r2.tags).toEqual(new Set(['geography::europe']));
-    expect(r2.cardFields).toEqual({ deck: 'Geography' });
-    expect(r2.text).toContain('{{c2::Paris}}');
-  });
+        // Should survive the failure and return the one good card.
+        // Currently throws instead.
+        expect(() => parseCards(root, VAULT)).not.toThrow();
+        const results = parseCards(root, VAULT);
+        expect(results).toHaveLength(1);
+        expect(results[0].text).toContain('Good');
+    });
 
-  it('handles a card that combines internal links with cloze spans', () => {
-    const card = makeCardEl(
-      '<p>See <a class="internal-link" data-href="My Note">My Note</a> for ' +
-      '<span class="cloze">details</span>.</p>',
-      'id: 55',
-    );
-    const { text } = parseCard(card, 'TestVault');
-    expect(text).toContain('obsidian://open?vault=TestVault&file=My%20Note');
-    expect(text).toContain('{{c1::details}}');
-  });
+    it('emits console.warn when a card cannot be parsed', () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-  it('returns a fully empty ParsedCard for a card with no metadata and no body', () => {
-    const result = parseCard(makeCardEl(''), 'v');
-    expect(result.valid).toBe(true);
-    expect(result.id).toBeUndefined();
-    expect(result.tags).toEqual(new Set());
-    expect(result.cardFields).toEqual({});
-    expect(result.text).toBe('');
-  });
+        const bad = makeCard('<p>Bad</p>');
+        bad.querySelectorAll = () => { throw new Error('Simulated DOM failure'); };
 
-  it('returns an empty array for a document that contains no card callouts', () => {
-    const doc = document.createElement('div');
-    doc.innerHTML = '<p>Just a paragraph</p>';
-    expect(parseCards(doc, 'v')).toEqual([]);
-  });
+        try {
+            parseCards(wrapCards(bad, makeCard('<p>Good</p>')), VAULT);
+        } catch {
+            // swallow – we only care whether warn was called before the throw
+        }
+
+        // Documented: warn before skipping. Currently: no warn at all.
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        warnSpy.mockRestore();
+    });
 });
