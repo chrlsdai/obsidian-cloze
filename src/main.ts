@@ -6,10 +6,10 @@ import { CardFile, filterValidCards } from "./obsidian-card";
 import { generateUpdates, getConfig, syncNotes } from "./anki-note";
 // import { createNoteConverter, NoteModelConfig } from "./anki-note";
 
-const deckName = "Default";
+const deckName = "All Cards";
 const modelName = "Cloze";
 const scanFolder = "notes";
-const CLOZE_REGEX = /\{(?:\d+:)?([^:}]+)(?:::[^}]*?)?\}/g;
+const CLOZE_REGEX = /\{(?:(\d+):)?([^:}]+)(?:::([^}]*?))?\}/g;
 
 interface PluginData {
 	lastRun: number | null;
@@ -129,7 +129,7 @@ export default class ClozePlugin extends Plugin {
 		for (let i = 0; i < files.length; i++) {
 			const file = files[i];
 			if (!file) continue;
-			statusBar.setText(`⚙️ Processing: ${i + 1} / ${files.length} — ${file.name}`);
+			statusBar.setText(`⚙️ Processing: ${i + 1} / ${files.length}`);
 			const cardFile = await CardFile.load(this.app, file);
 			const cardsToSync = filterValidCards(cardFile.cards);
 			const results = await syncNotes(cardsToSync, config);
@@ -191,8 +191,14 @@ export default class ClozePlugin extends Plugin {
 				const slice = text.slice(lastIndex, match.index)
 				if (slice) fragment.append(slice);
 				fragment.createSpan({
-					text: match[1],
+					text: match[2],
 					cls: 'cloze',
+					...((match[1] || match[3]) && {
+						attr: {
+							...(match[1] && { id: match[1] }),
+							...(match[3] && { hint: match[3] })
+						}
+					})
 				});
 				lastIndex = (match.index ?? 0) + match[0].length;
 			}

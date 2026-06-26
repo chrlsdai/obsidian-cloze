@@ -7,7 +7,7 @@ export interface AnkiConnectNote {
     deckName: string;
     modelName: string;
     fields: NoteFields;
-    tags: Set<String>;
+    tags: string[];
     options: {
         allowDuplicate: boolean;
         duplicateScope: string;
@@ -37,7 +37,7 @@ export const createNoteConverter = (config: NoteConfig) =>
                 [config.firstFieldName]: card.text, // primary field always wins
             };
         })(),
-        tags: new Set([...card.tags]),
+        tags: [...card.tags],
         options: {
             allowDuplicate: config.allowDuplicate ?? false,
             duplicateScope: config.duplicateScope ?? "deck",

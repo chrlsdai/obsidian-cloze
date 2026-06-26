@@ -1,563 +1,644 @@
-/**
- * @file cardParser.test.ts
- *
- * Unit tests for parseCards() and parseCard().
- * Environment: Jest + jsdom (TypeScript).
- */
+import {
+  createNoteConverter,
+  addNote,
+  addNotes,
+  getConfig,
+  syncNotes,
+  generateUpdates,
+  type NoteConfig,
+  type AnkiConnectNote,
+} from '../src/anki-note';
 
-import { parseCards, parseCard, type ParsedCard } from '../src/parser';
+import { ankiRequest } from '../src/anki-connect';
+import type { ParsedCard } from '../src/parser';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Module mocks ─────────────────────────────────────────────────────────────
 
-const VAULT = 'TestVault';
+jest.mock('../src/anki-connect', () => ({
+  ankiRequest: jest.fn(),
+}));
 
-/**
- * Creates a `.callout[data-callout="card"]` element whose single child is a
- * `.callout-content` wrapper holding the supplied HTML.
- */
-function makeCard(contentHTML = ''): HTMLElement {
-    const el = document.createElement('div');
-    el.classList.add('callout');
-    el.setAttribute('data-callout', 'card');
-    el.innerHTML = `<div class="callout-content">${contentHTML}</div>`;
-    return el;
+const mockAnkiRequest = ankiRequest as jest.MockedFunction<typeof ankiRequest>;
+
+// ─── Test helpers ─────────────────────────────────────────────────────────────
+
+function makeCard(overrides: Partial<ParsedCard> = {}): ParsedCard {
+  return {
+    text: 'Default text',
+    cardFields: {},
+    tags: new Set(),
+    ...overrides,
+  } as ParsedCard;
 }
 
-/**
- * Returns an HTML string for a `card-metadata` callout whose inner
- * `.callout-content` holds `lines` as a plain text node.
- */
-function metaHTML(lines: string): string {
-    return (
-        `<div class="callout" data-callout="card-metadata">` +
-        `<div class="callout-content">${lines}</div>` +
-        `</div>`
-    );
+function makeConfig(overrides: Partial<NoteConfig> = {}): NoteConfig {
+  return {
+    deckName: 'TestDeck',
+    modelName: 'TestModel',
+    firstFieldName: 'Front',
+    ...overrides,
+  };
 }
 
-/** Wraps card elements in a container `<div>` for use with parseCards(). */
-function wrapCards(...cards: HTMLElement[]): HTMLElement {
-    const root = document.createElement('div');
-    for (const c of cards) root.appendChild(c);
-    return root;
-}
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
 
-// ═════════════════════════════════════════════════════════════════════════════
-// parseCards()
-// ═════════════════════════════════════════════════════════════════════════════
-
-describe('parseCards()', () => {
-    // ── Input validation ──────────────────────────────────────────────────────
-
-    describe('input validation', () => {
-        it.each([null, undefined, 42, 'string', {}])(
-            'throws TypeError when documentEl is %p',
-            (bad) => expect(() => parseCards(bad as any, VAULT)).toThrow(TypeError),
-        );
-
-        it.each([null, undefined, '', '   ', 0])(
-            'throws TypeError when vaultName is %p',
-            (bad) => {
-                const el = document.createElement('div');
-                expect(() => parseCards(el, bad as any)).toThrow(TypeError);
-            },
-        );
-    });
-
-    // ── Core behaviour ────────────────────────────────────────────────────────
-
-    it('returns [] when no card callouts are present', () => {
-        const el = document.createElement('div');
-        el.innerHTML =
-            '<p>text</p>' +
-            '<div class="callout" data-callout="note"><div class="callout-content">n</div></div>';
-        expect(parseCards(el, VAULT)).toEqual([]);
-    });
-
-    it('returns one ParsedCard per [!card] callout', () => {
-        const result = parseCards(
-            wrapCards(makeCard('<p>A</p>'), makeCard('<p>B</p>'), makeCard('<p>C</p>')),
-            VAULT,
-        );
-        expect(result).toHaveLength(3);
-    });
-
-    it('ignores callouts with a different data-callout type', () => {
-        const el = document.createElement('div');
-        el.innerHTML = `
-            <div class="callout" data-callout="info"><div class="callout-content">x</div></div>
-            <div class="callout" data-callout="card"><div class="callout-content">y</div></div>
-            <div class="callout" data-callout="warning"><div class="callout-content">z</div></div>
-        `;
-        expect(parseCards(el, VAULT)).toHaveLength(1);
-    });
-
-    it('finds card callouts nested deep in the document tree', () => {
-        const root = document.createElement('div');
-        root.innerHTML = `
-            <section><article>
-                <div class="callout" data-callout="card">
-                    <div class="callout-content"><p>deep</p></div>
-                </div>
-            </article></section>
-        `;
-        expect(parseCards(root, VAULT)).toHaveLength(1);
-    });
-
-    it('passes vaultName through to Obsidian URI generation', () => {
-        const card = makeCard('<a class="internal-link" data-href="Note">N</a>');
-        const [result] = parseCards(wrapCards(card), 'My Vault');
-        expect(result.text).toContain('vault=My%20Vault');
-    });
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.spyOn(console, 'log').mockImplementation(() => {});
 });
 
-// ═════════════════════════════════════════════════════════════════════════════
-// parseCard()
-// ═════════════════════════════════════════════════════════════════════════════
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
-describe('parseCard()', () => {
-    // ── Input validation ──────────────────────────────────────────────────────
+// ─── createNoteConverter ──────────────────────────────────────────────────────
 
-    describe('input validation', () => {
-        it.each([null, undefined, 'div', 42, {}])(
-            'throws TypeError when cardElement is %p',
-            (bad) => expect(() => parseCard(bad as any, VAULT)).toThrow(TypeError),
-        );
+describe('createNoteConverter', () => {
+  it('returns a function', () => {
+    expect(typeof createNoteConverter(makeConfig())).toBe('function');
+  });
 
-        it.each([null, undefined, '', '   ', 0])(
-            'throws TypeError when vaultName is %p',
-            (bad) => expect(() => parseCard(makeCard(), bad as any)).toThrow(TypeError),
-        );
+  it('produces an AnkiConnectNote with the correct shape', () => {
+    const converter = createNoteConverter(makeConfig());
+    const card = makeCard({
+      text: 'Question',
+      cardFields: { Back: 'Answer' },
+      tags: ['tag1', 'tag2'],
     });
 
-    // ── Return shape ──────────────────────────────────────────────────────────
+    expect(converter(card)).toEqual<AnkiConnectNote>({
+      deckName: 'TestDeck',
+      modelName: 'TestModel',
+      fields: { Front: 'Question', Back: 'Answer' },
+      tags: ['tag1', 'tag2'],
+      options: { allowDuplicate: false, duplicateScope: 'deck' },
+    });
+  });
 
-    it('always returns an object with valid (boolean), tags (Set), cardFields (object), text (string)', () => {
-        const r = parseCard(makeCard(), VAULT);
-        expect(typeof r.valid).toBe('boolean');
-        expect(r.tags).toBeInstanceOf(Set);
-        expect(typeof r.cardFields).toBe('object');
-        expect(typeof r.text).toBe('string');
+  it('sets deckName and modelName from config', () => {
+    const converter = createNoteConverter(
+      makeConfig({ deckName: 'MyDeck', modelName: 'MyModel' })
+    );
+    const { deckName, modelName } = converter(makeCard());
+
+    expect(deckName).toBe('MyDeck');
+    expect(modelName).toBe('MyModel');
+  });
+
+  it('puts card.text under the firstFieldName key', () => {
+    const converter = createNoteConverter(makeConfig({ firstFieldName: 'Front' }));
+    const { fields } = converter(makeCard({ text: 'Hello' }));
+
+    expect(fields['Front']).toBe('Hello');
+  });
+
+  it('merges all cardFields into the fields object', () => {
+    const converter = createNoteConverter(makeConfig({ firstFieldName: 'Front' }));
+    const { fields } = converter(
+      makeCard({ text: 'Q', cardFields: { Back: 'A', Extra: 'E' } })
+    );
+
+    expect(fields).toEqual({ Front: 'Q', Back: 'A', Extra: 'E' });
+  });
+
+  it('card.text (primary field) always overwrites a conflicting cardFields key', () => {
+    const converter = createNoteConverter(makeConfig({ firstFieldName: 'Front' }));
+    const { fields } = converter(
+      makeCard({ text: 'Wins', cardFields: { Front: 'Loses' } })
+    );
+
+    expect(fields['Front']).toBe('Wins');
+  });
+
+  it('emits console.warn when cardFields contains the firstFieldName key', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const converter = createNoteConverter(makeConfig({ firstFieldName: 'Front' }));
+
+    converter(makeCard({ cardFields: { Front: 'conflict' } }));
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"Front"'));
+  });
+
+  it('does NOT warn when there is no key conflict', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const converter = createNoteConverter(makeConfig({ firstFieldName: 'Front' }));
+
+    converter(makeCard({ cardFields: { Back: 'safe' } }));
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('defaults allowDuplicate to false and duplicateScope to "deck"', () => {
+    const { options } = createNoteConverter(makeConfig())(makeCard());
+
+    expect(options).toEqual({ allowDuplicate: false, duplicateScope: 'deck' });
+  });
+
+  it('forwards custom allowDuplicate and duplicateScope from config', () => {
+    const converter = createNoteConverter(
+      makeConfig({ allowDuplicate: true, duplicateScope: 'collection' })
+    );
+
+    expect(converter(makeCard()).options).toEqual({
+      allowDuplicate: true,
+      duplicateScope: 'collection',
+    });
+  });
+
+  it('spreads tags into a new array (not the same reference)', () => {
+    const originalTags = ['a', 'b'];
+    const { tags } = createNoteConverter(makeConfig())(makeCard({ tags: originalTags }));
+
+    expect(tags).toEqual(originalTags);
+    expect(tags).not.toBe(originalTags);
+  });
+
+  it('handles an empty cardFields object', () => {
+    const converter = createNoteConverter(makeConfig({ firstFieldName: 'Q' }));
+    const { fields } = converter(makeCard({ text: 'Only primary', cardFields: {} }));
+
+    expect(fields).toEqual({ Q: 'Only primary' });
+  });
+});
+
+// ─── addNote ──────────────────────────────────────────────────────────────────
+
+describe('addNote', () => {
+  const note: AnkiConnectNote = {
+    deckName: 'Deck',
+    modelName: 'Model',
+    fields: { Front: 'Q' },
+    tags: [],
+    options: { allowDuplicate: false, duplicateScope: 'deck' },
+  };
+
+  it('calls ankiRequest with action "addNote" and the note payload', async () => {
+    mockAnkiRequest.mockResolvedValueOnce(42);
+
+    await addNote(note);
+
+    expect(mockAnkiRequest).toHaveBeenCalledWith('addNote', { note });
+  });
+
+  it('returns the ID resolved by ankiRequest', async () => {
+    mockAnkiRequest.mockResolvedValueOnce(42);
+
+    await expect(addNote(note)).resolves.toBe(42);
+  });
+});
+
+// ─── addNotes ─────────────────────────────────────────────────────────────────
+
+describe('addNotes', () => {
+  const notes: AnkiConnectNote[] = [
+    {
+      deckName: 'Deck',
+      modelName: 'Model',
+      fields: { Front: 'Q1' },
+      tags: [],
+      options: { allowDuplicate: false, duplicateScope: 'deck' },
+    },
+    {
+      deckName: 'Deck',
+      modelName: 'Model',
+      fields: { Front: 'Q2' },
+      tags: [],
+      options: { allowDuplicate: false, duplicateScope: 'deck' },
+    },
+  ];
+
+  it('calls ankiRequest with action "addNotes" and the notes array payload', async () => {
+    mockAnkiRequest.mockResolvedValueOnce([1, 2]);
+
+    await addNotes(notes);
+
+    expect(mockAnkiRequest).toHaveBeenCalledWith('addNotes', { notes });
+  });
+
+  it('returns the array of IDs resolved by ankiRequest', async () => {
+    mockAnkiRequest.mockResolvedValueOnce([100, 200]);
+
+    await expect(addNotes(notes)).resolves.toEqual([100, 200]);
+  });
+});
+
+// ─── getConfig ────────────────────────────────────────────────────────────────
+
+describe('getConfig', () => {
+  function setupValidMocks(
+    decks = ['TestDeck'],
+    models = ['TestModel'],
+    fields = ['Front', 'Back']
+  ) {
+    mockAnkiRequest
+      .mockResolvedValueOnce(decks)
+      .mockResolvedValueOnce(models)
+      .mockResolvedValueOnce(fields);
+  }
+
+  it('returns a complete NoteConfig on the happy path', async () => {
+    setupValidMocks();
+
+    await expect(getConfig('TestDeck', 'TestModel')).resolves.toEqual({
+      deckName: 'TestDeck',
+      modelName: 'TestModel',
+      firstFieldName: 'Front',
+    });
+  });
+
+  it('uses the first element of modelFieldNames as firstFieldName', async () => {
+    setupValidMocks(['TestDeck'], ['TestModel'], ['Primary', 'Secondary', 'Extra']);
+
+    const { firstFieldName } = await getConfig('TestDeck', 'TestModel');
+
+    expect(firstFieldName).toBe('Primary');
+  });
+
+  it('calls deckNames then modelNames (parallel pair), then modelFieldNames', async () => {
+    setupValidMocks();
+
+    await getConfig('TestDeck', 'TestModel');
+
+    expect(mockAnkiRequest).toHaveBeenNthCalledWith(1, 'deckNames', {});
+    expect(mockAnkiRequest).toHaveBeenNthCalledWith(2, 'modelNames', {});
+    expect(mockAnkiRequest).toHaveBeenNthCalledWith(3, 'modelFieldNames', {
+      modelName: 'TestModel',
+    });
+  });
+
+  it('throws with a descriptive message when the deck is not found', async () => {
+    mockAnkiRequest
+      .mockResolvedValueOnce(['SomeDeck'])
+      .mockResolvedValueOnce(['TestModel']);
+
+    await expect(getConfig('TestDeck', 'TestModel')).rejects.toThrow(
+      'Deck "TestDeck" not found'
+    );
+  });
+
+  it('does not call modelFieldNames when the deck check fails', async () => {
+    mockAnkiRequest
+      .mockResolvedValueOnce(['SomeDeck'])
+      .mockResolvedValueOnce(['TestModel']);
+
+    await getConfig('TestDeck', 'TestModel').catch(() => {});
+
+    expect(mockAnkiRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws with a descriptive message when the model is not found', async () => {
+    mockAnkiRequest
+      .mockResolvedValueOnce(['TestDeck'])
+      .mockResolvedValueOnce(['SomeModel']);
+
+    await expect(getConfig('TestDeck', 'TestModel')).rejects.toThrow(
+      'Model "TestModel" not found'
+    );
+  });
+
+  it('throws when the model has no fields', async () => {
+    mockAnkiRequest
+      .mockResolvedValueOnce(['TestDeck'])
+      .mockResolvedValueOnce(['TestModel'])
+      .mockResolvedValueOnce([]);
+
+    await expect(getConfig('TestDeck', 'TestModel')).rejects.toThrow(
+      'Model "TestModel" has no fields'
+    );
+  });
+});
+
+// ─── syncNotes ────────────────────────────────────────────────────────────────
+
+describe('syncNotes', () => {
+  const config = makeConfig({ firstFieldName: 'Front' });
+
+  // ── All-new cards (no IDs) ─────────────────────────────────────────────────
+
+  describe('when all cards are new (no IDs)', () => {
+    it('returns "created" results indexed by position', async () => {
+      const cards = [makeCard({ text: 'A' }), makeCard({ text: 'B' })];
+      mockAnkiRequest.mockResolvedValueOnce([101, 102]);
+
+      const results = await syncNotes(cards, config);
+
+      expect(results).toEqual([
+        { id: 101, status: 'created' },
+        { id: 102, status: 'created' },
+      ]);
     });
 
-    // ── Card with no card-metadata callout ────────────────────────────────────
+    it('never calls notesInfo', async () => {
+      mockAnkiRequest.mockResolvedValueOnce([1]);
 
-    describe('card with no card-metadata callout', () => {
-        let r: ParsedCard;
-        beforeEach(() => { r = parseCard(makeCard('<p>Body</p>'), VAULT); });
+      await syncNotes([makeCard()], config);
 
-        it('valid is true',                  () => expect(r.valid).toBe(true));
-        it('id is undefined',                () => expect(r.id).toBeUndefined());
-        it('tags is an empty Set',           () => expect(r.tags.size).toBe(0));
-        it('cardFields is {}',               () => expect(r.cardFields).toEqual({}));
-        it('text is the serialised body',    () => expect(r.text).toBe('<p>Body</p>'));
+      expect(mockAnkiRequest).not.toHaveBeenCalledWith('notesInfo', expect.anything());
     });
 
-    it('returns text="" when the card element has no .callout-content child', () => {
-        const el = document.createElement('div');
-        el.classList.add('callout');
-        el.setAttribute('data-callout', 'card');
-        expect(parseCard(el, VAULT).text).toBe('');
+    it('passes correctly converted AnkiConnectNotes to addNotes', async () => {
+      const card = makeCard({ text: 'Q', cardFields: { Back: 'A' }, tags: ['study'] });
+      mockAnkiRequest.mockResolvedValueOnce([200]);
+
+      await syncNotes([card], config);
+
+      expect(mockAnkiRequest).toHaveBeenCalledWith('addNotes', {
+        notes: [
+          {
+            deckName: 'TestDeck',
+            modelName: 'TestModel',
+            fields: { Front: 'Q', Back: 'A' },
+            tags: ['study'],
+            options: { allowDuplicate: false, duplicateScope: 'deck' },
+          },
+        ],
+      });
     });
 
-    // ── Metadata: id ─────────────────────────────────────────────────────────
+    it('marks a slot as error when addNotes returns null for that position', async () => {
+      const cards = [makeCard(), makeCard()];
+      mockAnkiRequest.mockResolvedValueOnce([300, null]);
 
-    describe('metadata – id field', () => {
-        it('parses a valid positive integer', () => {
-            const r = parseCard(makeCard(metaHTML('id: 42')), VAULT);
-            expect(r.id).toBe(42);
-            expect(r.valid).toBe(true);
-        });
+      const results = await syncNotes(cards, config);
 
-        it('parses a large safe integer', () => {
-            expect(parseCard(makeCard(metaHTML('id: 1700000000000')), VAULT).id).toBe(1700000000000);
-        });
-
-        it('sets valid:false and id:undefined for id = 0', () => {
-            const r = parseCard(makeCard(metaHTML('id: 0')), VAULT);
-            expect(r.valid).toBe(false);
-            expect(r.id).toBeUndefined();
-        });
-
-        it('sets valid:false for a negative id', () => {
-            const r = parseCard(makeCard(metaHTML('id: -5')), VAULT);
-            expect(r.valid).toBe(false);
-            expect(r.id).toBeUndefined();
-        });
-
-        it('sets valid:false for an empty id value', () => {
-            expect(parseCard(makeCard(metaHTML('id: ')), VAULT).valid).toBe(false);
-        });
-
-        it('sets valid:false for a non-numeric id string', () => {
-            expect(parseCard(makeCard(metaHTML('id: abc')), VAULT).valid).toBe(false);
-        });
-
-        it('sets valid:false for a string with trailing letters ("123abc")', () => {
-            expect(parseCard(makeCard(metaHTML('id: 123abc')), VAULT).valid).toBe(false);
-        });
-
-        it('sets valid:false for a floating-point id string ("1.5")', () => {
-            expect(parseCard(makeCard(metaHTML('id: 1.5')), VAULT).valid).toBe(false);
-        });
-
-        it('id remains undefined when the value is invalid', () => {
-            expect(parseCard(makeCard(metaHTML('id: bad')), VAULT).id).toBeUndefined();
-        });
+      expect(results[0]).toEqual({ id: 300, status: 'created' });
+      expect(results[1]).toEqual({
+        id: null,
+        status: 'error',
+        error: 'addNotes returned null for this note',
+      });
     });
 
-    // ── Metadata: tags ────────────────────────────────────────────────────────
+    it('marks ALL new slots as error when addNotes rejects', async () => {
+      const cards = [makeCard(), makeCard()];
+      mockAnkiRequest.mockRejectedValueOnce(new Error('Network error'));
 
-    describe('metadata – tags field', () => {
-        /** Convenience: extract only the tags from a single metadata line. */
-        const parseTags = (line: string) =>
-            parseCard(makeCard(metaHTML(line)), VAULT).tags;
+      const results = await syncNotes(cards, config);
 
-        it('parses space-separated tags',
-            () => expect(parseTags('tags: #a #b')).toEqual(new Set(['a', 'b'])));
-
-        it('parses comma-separated tags',
-            () => expect(parseTags('tags: #a,#b')).toEqual(new Set(['a', 'b'])));
-
-        it('parses comma-and-space-separated tags',
-            () => expect(parseTags('tags: #a, #b')).toEqual(new Set(['a', 'b'])));
-
-        it('strips the leading # character', () => {
-            const tags = parseTags('tags: #x');
-            expect(tags).toContain('x');
-            expect(tags).not.toContain('#x');
-        });
-
-        it('converts "/" to "::" for nested-tag hierarchies',
-            () => expect(parseTags('tags: #deck/sub')).toContain('deck::sub'));
-
-        it('handles tags without a # prefix',
-            () => expect(parseTags('tags: plain')).toContain('plain'));
-
-        it('returns an empty Set when the value is blank',
-            () => expect(parseTags('tags: ').size).toBe(0));
+      expect(results).toEqual([
+        { id: null, status: 'error', error: 'Network error' },
+        { id: null, status: 'error', error: 'Network error' },
+      ]);
     });
 
-    // ── Metadata: custom fields ───────────────────────────────────────────────
+    it('stringifies non-Error rejections from addNotes', async () => {
+      mockAnkiRequest.mockRejectedValueOnce('plain string error');
 
-    describe('metadata – custom fields', () => {
-        it('extracts a single field', () => {
-            expect(parseCard(makeCard(metaHTML('Front: Q')), VAULT).cardFields)
-                .toEqual({ Front: 'Q' });
-        });
+      const [result] = await syncNotes([makeCard()], config);
 
-        it('extracts multiple fields from separate lines', () => {
-            expect(
-                parseCard(makeCard(metaHTML('Front: Question\nBack: Answer')), VAULT).cardFields,
-            ).toEqual({ Front: 'Question', Back: 'Answer' });
-        });
+      expect(result).toEqual({ id: null, status: 'error', error: 'plain string error' });
+    });
+  });
 
-        it('preserves values that themselves contain a colon', () => {
-            expect(
-                parseCard(makeCard(metaHTML('Extra: http://example.com')), VAULT).cardFields['Extra'],
-            ).toBe('http://example.com');
-        });
+  // ── Existing cards (IDs present in Anki) ──────────────────────────────────
 
-        it('ignores lines with no colon separator', () => {
-            expect(parseCard(makeCard(metaHTML('no separator')), VAULT).cardFields).toEqual({});
-        });
+  describe('when cards have IDs that exist in Anki', () => {
+    it('calls updateNote for each card and returns "updated" results', async () => {
+      const cards = [makeCard({ id: 1001 }), makeCard({ id: 1002 })];
+      mockAnkiRequest
+        .mockResolvedValueOnce([{ noteId: 1001 }, { noteId: 1002 }]) // notesInfo
+        .mockResolvedValueOnce(null)  // updateNote 1001
+        .mockResolvedValueOnce(null); // updateNote 1002
 
-        it('ignores blank lines', () => {
-            expect(
-                parseCard(makeCard(metaHTML('\n\nFront: Q\n\n')), VAULT).cardFields,
-            ).toEqual({ Front: 'Q' });
-        });
+      const results = await syncNotes(cards, config);
+
+      expect(results).toEqual([
+        { id: 1001, status: 'updated' },
+        { id: 1002, status: 'updated' },
+      ]);
     });
 
-    // ── Metadata: duplicate callouts ──────────────────────────────────────────
+    it('passes the card IDs to notesInfo', async () => {
+      const cards = [makeCard({ id: 1001 }), makeCard({ id: 1002 })];
+      mockAnkiRequest
+        .mockResolvedValueOnce([{ noteId: 1001 }, { noteId: 1002 }])
+        .mockResolvedValue(null);
 
-    it('sets valid:false when more than one card-metadata callout is present', () => {
-        const card = makeCard(metaHTML('id: 1') + metaHTML('id: 2'));
-        expect(parseCard(card, VAULT).valid).toBe(false);
+      await syncNotes(cards, config);
+
+      expect(mockAnkiRequest).toHaveBeenCalledWith('notesInfo', {
+        notes: [1001, 1002],
+      });
     });
 
-    // ── Metadata: full combination ────────────────────────────────────────────
+    it('sends the correct fields, tags, and id to updateNote', async () => {
+      const card = makeCard({
+        text: 'Question',
+        cardFields: { Back: 'Answer' },
+        tags: ['t1'],
+        id: 5001,
+      });
+      mockAnkiRequest
+        .mockResolvedValueOnce([{ noteId: 5001 }])
+        .mockResolvedValueOnce(null);
 
-    it('correctly parses id, tags, custom fields, and body text together', () => {
-        const card = makeCard(
-            `<p>Body</p>${metaHTML('id: 7\ntags: #deck/sub\nFront: Q\nBack: A')}`,
-        );
-        const r = parseCard(card, VAULT);
+      await syncNotes([card], config);
 
-        expect(r.valid).toBe(true);
-        expect(r.id).toBe(7);
-        expect(r.tags).toEqual(new Set(['deck::sub']));
-        expect(r.cardFields).toEqual({ Front: 'Q', Back: 'A' });
-        expect(r.text).toContain('Body');
-        expect(r.text).not.toContain('card-metadata');
+      expect(mockAnkiRequest).toHaveBeenCalledWith('updateNote', {
+        note: {
+          id: 5001,
+          fields: { Front: 'Question', Back: 'Answer' },
+          tags: ['t1'],
+        },
+      });
     });
 
-    // ── Text extraction ───────────────────────────────────────────────────────
+    it('marks a card as error when updateNote rejects with an Error', async () => {
+      const card = makeCard({ id: 7777 });
+      mockAnkiRequest
+        .mockResolvedValueOnce([{ noteId: 7777 }])
+        .mockRejectedValueOnce(new Error('Update failed'));
 
-    describe('text extraction', () => {
-        it('serialises the card body as HTML', () => {
-            expect(parseCard(makeCard('<p>Hello</p>'), VAULT).text).toBe('<p>Hello</p>');
-        });
+      const [result] = await syncNotes([card], config);
 
-        it('excludes the card-metadata callout from the serialised output', () => {
-            const card = makeCard(`<p>Body</p>${metaHTML('id: 1')}`);
-            const text = parseCard(card, VAULT).text;
-            expect(text).not.toContain('card-metadata');
-            expect(text).toContain('Body');
-        });
-
-        it('does not mutate the original card element', () => {
-            const card = makeCard(`<p>Body</p>${metaHTML('id: 1')}`);
-            const snapshot = card.innerHTML;
-            parseCard(card, VAULT);
-            expect(card.innerHTML).toBe(snapshot);
-        });
-
-        it('trims leading and trailing whitespace from the result', () => {
-            const text = parseCard(makeCard('  <p>Trimmed</p>  '), VAULT).text;
-            expect(text[0]).not.toBe(' ');
-            expect(text[text.length - 1]).not.toBe(' ');
-        });
-
-        it('serialises nested elements correctly', () => {
-            expect(
-                parseCard(makeCard('<p><strong>b</strong> and <em>i</em></p>'), VAULT).text,
-            ).toBe('<p><strong>b</strong> and <em>i</em></p>');
-        });
-
-        it('escapes & in text nodes (re-encodes what jsdom decoded)', () => {
-            // jsdom parses &amp; → & in the DOM; the serialiser must re-escape it
-            expect(parseCard(makeCard('<p>a &amp; b</p>'), VAULT).text).toBe('<p>a &amp; b</p>');
-        });
-
-        it('escapes < and > in text nodes', () => {
-            const text = parseCard(makeCard('<p>1 &lt; 2 &gt; 0</p>'), VAULT).text;
-            expect(text).toContain('&lt;');
-            expect(text).toContain('&gt;');
-        });
-
-        it('serialises void elements without a closing tag', () => {
-            expect(parseCard(makeCard('<br>'), VAULT).text).toBe('<br>');
-        });
-
-        it('<hr> has no closing tag', () => {
-            const text = parseCard(makeCard('<p>a</p><hr><p>b</p>'), VAULT).text;
-            expect(text).toContain('<hr>');
-            expect(text).not.toContain('</hr>');
-        });
+      expect(result).toEqual({ id: 7777, status: 'error', error: 'Update failed' });
     });
 
-    // ── Attribute filtering ───────────────────────────────────────────────────
+    it('stringifies non-Error rejections from updateNote', async () => {
+      const card = makeCard({ id: 6666 });
+      mockAnkiRequest
+        .mockResolvedValueOnce([{ noteId: 6666 }])
+        .mockRejectedValueOnce('oops');
 
-    describe('attribute filtering', () => {
-        it('preserves allowed attributes: src, alt, title, class, id, href', () => {
-            const card = makeCard(
-                '<img src="img.png" alt="a" title="t" class="c" id="i">',
-            );
-            const text = parseCard(card, VAULT).text;
-            expect(text).toContain('src="img.png"');
-            expect(text).toContain('alt="a"');
-            expect(text).toContain('title="t"');
-            expect(text).toContain('class="c"');
-            expect(text).toContain('id="i"');
-        });
+      const [result] = await syncNotes([card], config);
 
-        it('drops style and data-* attributes', () => {
-            const card = makeCard('<p style="color:red" data-foo="bar">Hi</p>');
-            expect(parseCard(card, VAULT).text).toBe('<p>Hi</p>');
-        });
+      expect(result).toEqual({ id: 6666, status: 'error', error: 'oops' });
+    });
+  });
 
-        it('escapes double-quotes inside attribute values', () => {
-            const card = makeCard('');
-            const img = document.createElement('img');
-            img.setAttribute('alt', 'say "hello"');
-            card.querySelector('.callout-content')!.appendChild(img);
-            expect(parseCard(card, VAULT).text).toContain('&quot;');
-        });
+  // ── Cards with IDs not found in Anki ──────────────────────────────────────
 
-        it('escapes & inside attribute values', () => {
-            const card = makeCard('');
-            const img = document.createElement('img');
-            img.setAttribute('alt', 'cats & dogs');
-            card.querySelector('.callout-content')!.appendChild(img);
-            expect(parseCard(card, VAULT).text).toContain('alt="cats &amp; dogs"');
-        });
+  describe('when a card has an ID not found in Anki', () => {
+    it('treats the card as new when notesInfo returns null for its slot', async () => {
+      const card = makeCard({ id: 9999 });
+      mockAnkiRequest
+        .mockResolvedValueOnce([null]) // Anki has no record for this ID
+        .mockResolvedValueOnce([401]);
+
+      const [result] = await syncNotes([card], config);
+
+      expect(result).toEqual({ id: 401, status: 'created' });
     });
 
-    // ── Cloze conversion ──────────────────────────────────────────────────────
+    it('treats the card as new when notesInfo entry has no noteId property', async () => {
+      const card = makeCard({ id: 8888 });
+      mockAnkiRequest
+        .mockResolvedValueOnce([{}]) // entry exists but noteId is absent
+        .mockResolvedValueOnce([501]);
 
-    describe('cloze conversion', () => {
-        it('converts <span class="cloze"> (no id) to {{c1::body}}', () => {
-            expect(parseCard(makeCard('<span class="cloze">ans</span>'), VAULT).text)
-                .toBe('{{c1::ans}}');
-        });
+      const [result] = await syncNotes([card], config);
 
-        it('uses an explicit positive-integer id attribute', () => {
-            expect(parseCard(makeCard('<span class="cloze" id="5">ans</span>'), VAULT).text)
-                .toBe('{{c5::ans}}');
-        });
+      expect(result).toEqual({ id: 501, status: 'created' });
+    });
+  });
 
-        it('appends ::hint when the hint attribute is set', () => {
-            expect(parseCard(makeCard('<span class="cloze" hint="h">ans</span>'), VAULT).text)
-                .toBe('{{c1::ans::h}}');
-        });
+  // ── Mixed new + existing ───────────────────────────────────────────────────
 
-        it('combines an explicit id with a hint', () => {
-            expect(parseCard(makeCard('<span class="cloze" id="3" hint="h">ans</span>'), VAULT).text)
-                .toBe('{{c3::ans::h}}');
-        });
+  describe('when the batch contains both new and existing cards', () => {
+    it('creates new cards and updates existing ones, preserving index order', async () => {
+      // index 0 → new (no id), index 1 → existing
+      const cards = [
+        makeCard({ text: 'New',      id: undefined }),
+        makeCard({ text: 'Existing', id: 2001 }),
+      ];
 
-        it('auto-increments IDs across consecutive cloze spans', () => {
-            const card = makeCard(
-                '<span class="cloze">x</span>' +
-                '<span class="cloze">y</span>' +
-                '<span class="cloze">z</span>',
-            );
-            expect(parseCard(card, VAULT).text).toBe('{{c1::x}}{{c2::y}}{{c3::z}}');
-        });
+      // Call order: notesInfo → updateNote (runs first in Promise.all) → addNotes
+      mockAnkiRequest
+        .mockResolvedValueOnce([{ noteId: 2001 }]) // notesInfo
+        .mockResolvedValueOnce(null)                // updateNote 2001
+        .mockResolvedValueOnce([301]);              // addNotes for new card
 
-        it('auto-IDs skip IDs already reserved by explicit spans', () => {
-            // id=1 is reserved → first auto gets id=2
-            const card = makeCard(
-                '<span class="cloze" id="1">A</span>' +
-                '<span class="cloze">B</span>',
-            );
-            expect(parseCard(card, VAULT).text).toBe('{{c1::A}}{{c2::B}}');
-        });
+      const results = await syncNotes(cards, config);
 
-        it('auto-IDs skip several consecutive reserved IDs', () => {
-            const card = makeCard(
-                '<span class="cloze" id="1">a</span>' +
-                '<span class="cloze" id="2">b</span>' +
-                '<span class="cloze">c</span>',
-            );
-            expect(parseCard(card, VAULT).text).toBe('{{c1::a}}{{c2::b}}{{c3::c}}');
-        });
+      expect(results[0]).toEqual({ id: 301,  status: 'created' });
+      expect(results[1]).toEqual({ id: 2001, status: 'updated' });
+    });
+  });
 
-        it('auto-assigns the lowest available ID even when higher IDs are reserved', () => {
-            // id=2 reserved; first auto span should claim id=1
-            const card = makeCard(
-                '<span class="cloze">auto</span>' +
-                '<span class="cloze" id="2">exp</span>',
-            );
-            expect(parseCard(card, VAULT).text).toBe('{{c1::auto}}{{c2::exp}}');
-        });
+  // ── Empty input ────────────────────────────────────────────────────────────
 
-        it('falls back to auto-ID for a non-numeric id attribute', () => {
-            expect(parseCard(makeCard('<span class="cloze" id="xyz">ans</span>'), VAULT).text)
-                .toBe('{{c1::ans}}');
-        });
+  describe('when the cards array is empty', () => {
+    it('returns an empty array without making any requests', async () => {
+      const results = await syncNotes([], config);
 
-        it('falls back to auto-ID when the id attribute is 0 (not > 0)', () => {
-            expect(parseCard(makeCard('<span class="cloze" id="0">ans</span>'), VAULT).text)
-                .toBe('{{c1::ans}}');
-        });
+      expect(results).toEqual([]);
+      expect(mockAnkiRequest).not.toHaveBeenCalled();
+    });
+  });
 
-        it('serialises nested HTML inside the cloze body', () => {
-            expect(
-                parseCard(makeCard('<span class="cloze"><em>em</em> text</span>'), VAULT).text,
-            ).toBe('{{c1::<em>em</em> text}}');
-        });
+  // ── Chunking ───────────────────────────────────────────────────────────────
 
-        it('does not treat a plain <span> (no cloze class) as a cloze deletion', () => {
-            const text = parseCard(makeCard('<span>plain</span>'), VAULT).text;
-            expect(text).not.toContain('{{');
-            expect(text).toBe('<span>plain</span>');
-        });
+  describe('chunk-size handling for updates', () => {
+    it('processes all N cards and returns "updated" for each', async () => {
+      const N = 5;
+      const cards = Array.from({ length: N }, (_, i) =>
+        makeCard({ text: `Card ${i}`, id: 1000 + i })
+      );
+
+      mockAnkiRequest
+        .mockResolvedValueOnce(cards.map((c) => ({ noteId: c.id }))) // notesInfo
+        .mockResolvedValue(null);                                      // all updateNote calls
+
+      const results = await syncNotes(cards, config, 2);
+
+      expect(results).toHaveLength(N);
+      expect(results.every((r) => r.status === 'updated')).toBe(true);
+      results.forEach((r, i) => expect(r.id).toBe(1000 + i));
     });
 
-    // ── Internal-link conversion ──────────────────────────────────────────────
+    it('makes exactly 1 notesInfo call + N updateNote calls', async () => {
+      const N = 5;
+      const cards = Array.from({ length: N }, (_, i) =>
+        makeCard({ id: 2000 + i })
+      );
 
-    describe('internal-link conversion', () => {
-        /** Builds the expected obsidian:// URI for assertions. */
-        const obsUri = (vault: string, file: string) =>
-            `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`;
+      mockAnkiRequest
+        .mockResolvedValueOnce(cards.map((c) => ({ noteId: c.id })))
+        .mockResolvedValue(null);
 
-        it('rewrites an internal-link anchor to an obsidian:// URI', () => {
-            const card = makeCard(
-                '<a class="internal-link" data-href="My Note" href="/My Note.md">My Note</a>',
-            );
-            expect(parseCard(card, VAULT).text).toBe(
-                `<a href="${obsUri(VAULT, 'My Note')}">My Note</a>`,
-            );
-        });
+      await syncNotes(cards, config, 2);
 
-        it('prefers data-href over href for the target file path', () => {
-            const card = makeCard(
-                '<a class="internal-link" data-href="Correct" href="Wrong">L</a>',
-            );
-            const text = parseCard(card, VAULT).text;
-            expect(text).toContain(`file=${encodeURIComponent('Correct')}`);
-            expect(text).not.toContain('Wrong');
-        });
-
-        it('falls back to href when data-href is absent', () => {
-            const card = makeCard('<a class="internal-link" href="Target">L</a>');
-            expect(parseCard(card, VAULT).text).toContain(
-                `file=${encodeURIComponent('Target')}`,
-            );
-        });
-
-        it('percent-encodes spaces in the vault name', () => {
-            const card = makeCard('<a class="internal-link" data-href="N">L</a>');
-            expect(parseCard(card, 'My Vault').text).toContain('vault=My%20Vault');
-        });
-
-        it('percent-encodes special characters in the file path', () => {
-            const card = makeCard(
-                '<a class="internal-link" data-href="Folder/Sub Note">L</a>',
-            );
-            expect(parseCard(card, VAULT).text).toContain(
-                `file=${encodeURIComponent('Folder/Sub Note')}`,
-            );
-        });
-
-        it('strips Obsidian-specific attributes from the rewritten anchor', () => {
-            const card = makeCard(
-                '<a class="internal-link" data-href="N" data-type="wikilink" href="/N.md">L</a>',
-            );
-            const text = parseCard(card, VAULT).text;
-            expect(text).not.toContain('data-href');
-            expect(text).not.toContain('data-type');
-        });
-
-        it('preserves the anchor\'s child nodes in the rewritten output', () => {
-            const card = makeCard(
-                '<a class="internal-link" data-href="N">Click <em>here</em></a>',
-            );
-            expect(parseCard(card, VAULT).text).toContain('Click <em>here</em>');
-        });
-
-        it('does not rewrite regular (external) anchors', () => {
-            const card = makeCard('<a href="https://example.com">External</a>');
-            const text = parseCard(card, VAULT).text;
-            expect(text).not.toContain('obsidian://');
-            expect(text).toContain('https://example.com');
-        });
+      expect(mockAnkiRequest).toHaveBeenCalledTimes(N + 1);
     });
+  });
+});
 
-    // ── Integration: realistic card ───────────────────────────────────────────
+// ─── generateUpdates ─────────────────────────────────────────────────────────
 
-    describe('integration: full realistic card', () => {
-        it('parses body text, cloze deletion, internal link, and metadata together', () => {
-            const card = makeCard(
-                '<p>The capital of France is ' +
-                '<span class="cloze" id="1">Paris</span>.</p>' +
-                '<p>See: <a class="internal-link" data-href="France">France</a></p>' +
-                metaHTML('id: 1234567890\ntags: #geo #europe\nDeck: Geography::Europe'),
-            );
+describe('generateUpdates', () => {
+  it('returns an update entry for every "created" result with a non-null id', () => {
+    const cards = [makeCard({ text: 'A' }), makeCard({ text: 'B' })];
+    const results = [
+      { id: 11, status: 'created' as const },
+      { id: 22, status: 'created' as const },
+    ];
 
-            const r = parseCard(card, 'MyVault');
+    expect(generateUpdates(cards, results)).toEqual([
+      { card: cards[0], fields: { id: '11' } },
+      { card: cards[1], fields: { id: '22' } },
+    ]);
+  });
 
-            expect(r.valid).toBe(true);
-            expect(r.id).toBe(1234567890);
-            expect(r.tags).toEqual(new Set(['geo', 'europe']));
-            expect(r.cardFields).toEqual({ Deck: 'Geography::Europe' });
-            expect(r.text).toContain('{{c1::Paris}}');
-            expect(r.text).toContain(
-                `obsidian://open?vault=MyVault&file=France`,
-            );
-            expect(r.text).not.toContain('card-metadata');
-        });
-    });
+  it('converts the numeric id to a string in fields.id', () => {
+    const cards = [makeCard()];
+    const results = [{ id: 99999, status: 'created' as const }];
+
+    const [update] = generateUpdates(cards, results);
+
+    expect(typeof update?.fields.id).toBe('string');
+    expect(update?.fields.id).toBe('99999');
+  });
+
+  it('references the original card object (identity)', () => {
+    const card = makeCard({ text: 'My card' });
+    const [update] = generateUpdates([card], [{ id: 1, status: 'created' as const }]);
+
+    expect(update?.card).toBe(card);
+  });
+
+  it('excludes results with status "updated"', () => {
+    const cards = [makeCard()];
+    const results = [{ id: 1, status: 'updated' as const }];
+
+    expect(generateUpdates(cards, results)).toHaveLength(0);
+  });
+
+  it('excludes results with status "error"', () => {
+    const cards = [makeCard()];
+    const results = [{ id: null, status: 'error' as const, error: 'Oops' }];
+
+    expect(generateUpdates(cards, results)).toHaveLength(0);
+  });
+
+  it('excludes "created" results whose id is null', () => {
+    const cards = [makeCard()];
+    const results = [{ id: null, status: 'created' as const }];
+
+    expect(generateUpdates(cards, results)).toHaveLength(0);
+  });
+
+  it('handles a realistic mix of created / updated / error results', () => {
+    const cards = [
+      makeCard({ text: 'Created' }),
+      makeCard({ text: 'Updated' }),
+      makeCard({ text: 'Error' }),
+      makeCard({ text: 'Created null id' }),
+    ];
+    const results = [
+      { id: 111,  status: 'created' as const },
+      { id: 222,  status: 'updated' as const },
+      { id: null, status: 'error'   as const, error: 'bad' },
+      { id: null, status: 'created' as const },
+    ];
+
+    const updates = generateUpdates(cards, results);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toEqual({ card: cards[0], fields: { id: '111' } });
+  });
+
+  it('returns an empty array for empty inputs', () => {
+    expect(generateUpdates([], [])).toEqual([]);
+  });
 });
