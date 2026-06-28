@@ -18,3 +18,10 @@ export async function ankiRequest<T>(action: string, params: object): Promise<T>
     return result as T;
 }
 
+export async function getDeckNames(): Promise<string[]> {
+    return ankiRequest<string[]>("deckNames", {});
+}
+
+export async function getModelNames(): Promise<string[]> {
+    return ankiRequest<string[]>("modelNames", {});
+}

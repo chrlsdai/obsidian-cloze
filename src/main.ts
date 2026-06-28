@@ -1,15 +1,9 @@
 import { Notice, Plugin, TFile, TFolder } from "obsidian";
-import { } from './settings';
-import { parseCards, ParsedCard } from './parser';
-import { getActiveHTML } from "./helpers";
+import { ClozeSettingTab, PluginSettings } from './settings';
 import { CardFile, filterValidCards } from "./obsidian-card";
 import { generateUpdates, getConfig, syncNotes } from "./anki-note";
-// import { createNoteConverter, NoteModelConfig } from "./anki-note";
-
-const deckName = "All Cards";
-const modelName = "Cloze";
-const scanFolder = "notes";
-const CLOZE_REGEX = /\{(?:(\d+):)?([^:}]+)(?:::([^}]*?))?\}/g;
+import { getDeckNames, getModelNames } from "./anki-connect";
+import { renderClozeSpans } from "./helpers";
 
 interface PluginData {
 	lastRun: number | null;
@@ -19,12 +13,27 @@ const DEFAULT_DATA: PluginData = {
 	lastRun: null,
 };
 
+const DEFAULT_SETTINGS: PluginSettings = {
+	deckName: 'Default',
+	modelName: 'Cloze',
+	scanFolder: '',
+}
+
 export default class ClozePlugin extends Plugin {
 	data: PluginData = DEFAULT_DATA;
+	settings: PluginSettings = DEFAULT_SETTINGS;
+
+	// Populated asynchronously by loadAnkiSuggestions().
+	// StringSuggest holds a getter that reads these, so it always sees the
+	// latest values without needing to be reconstructed.
+	deckSuggestions: string[] = [];
+	modelSuggestions: string[] = [];
 
 	async onload() {
-		this.data = Object.assign({}, DEFAULT_DATA, await this.loadData());
+		await this.loadSettings()
+
 		const statusBar = this.addStatusBarItem();
+
 		this.addCommand({
 			id: 'parse-file',
 			name: "Parse File",
@@ -38,9 +47,9 @@ export default class ClozePlugin extends Plugin {
 			id: 'sync-vault',
 			name: 'Sync Vault',
 			callback: async () => {
-				const folder = this.app.vault.getAbstractFileByPath(scanFolder)
+				const folder = this.app.vault.getAbstractFileByPath(this.settings.scanFolder)
 				let files;
-				if (!scanFolder) {
+				if (!this.settings.scanFolder) {
 					files = await this.getFilesSinceLastRun();
 				}
 				else if (folder instanceof TFolder) {
@@ -67,7 +76,45 @@ export default class ClozePlugin extends Plugin {
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
 			this.renderCardClozes(el);
 		});
+
+		// Fetch Anki deck/model names in the background.
+		// Intentionally not awaited so onload() returns immediately.
+		this.loadAnkiSuggestions();
 	}
+
+	// ── Settings ─────────────────────────────────────────────────────────────
+
+	async loadSettings() {
+		const saved = (await this.loadData())
+		this.data = Object.assign({}, DEFAULT_DATA, { lastRun: saved.lastRun ?? null });
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved.settings ?? {})
+		this.addSettingTab(new ClozeSettingTab(this.app, this));
+	}
+
+	async saveSettings(): Promise<void> {
+		await this.saveData({
+			lastRun: this.data.lastRun,
+			settings: this.settings,
+		});
+	}
+
+	// ── Anki suggestions ─────────────────────────────────────────────────────
+
+	private async loadAnkiSuggestions(): Promise<void> {
+		try {
+			const [decks, models] = await Promise.all([
+				getDeckNames(),
+				getModelNames(),
+			]);
+			this.deckSuggestions = decks;
+			this.modelSuggestions = models;
+		} catch {
+			// Anki not reachable at startup; suggestions remain empty.
+			// The user can still type values manually.
+		}
+	}
+
+	// ── Files search for sync ────────────────────────────────────────────────────
 
 	async getFilesSinceLastRun(folder?: TFolder): Promise<TFile[]> {
 		const { lastRun } = this.data;
@@ -110,12 +157,13 @@ export default class ClozePlugin extends Plugin {
 		new Notice("Last run timestamp reset. Next run will return all files.");
 	}
 
+	// ── Sync ─────────────────────────────────────────────────────────────
 	private async syncCards(files: TFile[], statusBar: HTMLElement): Promise<boolean> {
 		new Notice("Connecting...");
 
 		let config;
 		try {
-			config = await getConfig(deckName, modelName);
+			config = await getConfig(this.settings.deckName, this.settings.modelName);
 			if (!config) {
 				throw new Error("No config returned");
 			}
@@ -143,70 +191,12 @@ export default class ClozePlugin extends Plugin {
 		return true;
 	}
 
-	/*
-	Find and render all clozes in flashcards in given block.
-	*/
+
+	// ── Rendering ─────────────────────────────────────────────────────────────
+
+	// Find and render all clozes in flashcards in given block.
 	private renderCardClozes(el: HTMLElement) {
 		const cards = el.querySelectorAll('.callout[data-callout="card"]')
-		cards.forEach(card => this.renderClozeSpans(card));
-	}
-
-	private readonly clozeRe = new RegExp(CLOZE_REGEX.source, CLOZE_REGEX.flags);
-
-	/*
-	Given a flashcard, replace all clozes in the form {1:foo::bar} with 
-	span containing the answer text. 
-	*/
-	private renderClozeSpans(el: Element) {
-		const walker = document.createTreeWalker(
-			el,
-			NodeFilter.SHOW_TEXT,
-			{
-				acceptNode: (node: Node) => {
-					return !!node.textContent?.trim()
-						? NodeFilter.FILTER_ACCEPT
-						: NodeFilter.FILTER_SKIP;
-				}
-			}
-		);
-
-		const blocks: Text[] = [];
-		let current = walker.nextNode() as Text | null;
-		while (current) {
-			blocks.push(current)
-			current = walker.nextNode() as Text | null;
-		}
-
-		blocks.forEach((textblock) => {
-			const text = textblock?.textContent;
-
-			this.clozeRe.lastIndex = 0;
-			if (!this.clozeRe.test(text)) return;
-			this.clozeRe.lastIndex = 0;
-
-			// build new text to put into the block
-			const fragment = document.createDocumentFragment();
-			let lastIndex = 0;
-			for (const match of text.matchAll(this.clozeRe)) {
-				const slice = text.slice(lastIndex, match.index)
-				if (slice) fragment.append(slice);
-				fragment.createSpan({
-					text: match[2],
-					cls: 'cloze',
-					...((match[1] || match[3]) && {
-						attr: {
-							...(match[1] && { id: match[1] }),
-							...(match[3] && { hint: match[3] })
-						}
-					})
-				});
-				lastIndex = (match.index ?? 0) + match[0].length;
-			}
-			// add tail end of text
-			const posttext = text.slice(lastIndex);
-			if (posttext) fragment.append(posttext);
-
-			textblock.replaceWith(fragment);
-		});
+		cards.forEach(card => renderClozeSpans(card));
 	}
 }
