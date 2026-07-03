@@ -1,9 +1,9 @@
 {
-	"id": "o2a",
-	"name": "Medical Anki Integration",
-	"version": "1.0.1",
-	"minAppVersion": "1.0.1",
-	"description": "Obsidian integration with Anki Cloze notes in a pretty way.",
+	"id": "obsidian-cloze",
+	"name": "Obsidian Cloze",
+	"version": "1.0.0",
+	"minAppVersion": "1.12.0",
+	"description": "Create Anki cloze flashcards as [!note] callout blocks using {cloze} syntax, render them with visual highlights in Obsidian, and sync to Anki via AnkiConnect.",
 	"author": "Charles Dai",
 	"isDesktopOnly": true
 }
