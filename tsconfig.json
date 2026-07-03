@@ -1,21 +1,30 @@
 {
-	"compilerOptions": {
-		"inlineSourceMap": true,
-		"inlineSources": true,
-		"module": "ESNext",
-		"target": "ES2021",
-		"strict": true,
-		"noImplicitReturns": true,
-		"noFallthroughCasesInSwitch": true,
-		"noUncheckedIndexedAccess": true,
-		"moduleResolution": "node",
-		"isolatedModules": true,
-		"skipLibCheck": true,
-		"forceConsistentCasingInFileNames": true,
-		"allowSyntheticDefaultImports": true,
-		"lib": ["ES2021", "DOM"],
-		"ignoreDeprecations": "6.0",
-		"types": ["jest", "node"],
-	},
-	"include": ["src/**/*.ts"]
+    "compilerOptions": {
+        "inlineSourceMap": true,
+        "inlineSources": true,
+        "module": "ESNext",
+        "target": "ES2021",
+        "strict": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        "moduleResolution": "node",
+        "isolatedModules": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "allowSyntheticDefaultImports": true,
+        "lib": [
+            "ES2021",
+            "DOM"
+        ],
+        "ignoreDeprecations": "6.0",
+    },
+    "include": [
+        "src/**/*.ts"
+, "src/settings/tab.ts"    ],
+    // "references": [
+    //     {
+    //         "path": "./tsconfig.test.json"
+    //     }
+    // ]
 }
