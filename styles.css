@@ -1,22 +1,22 @@
 
 /* ── Card callout base ─────────────────────────────── */
-.callout[data-callout="card"] {
+.callout[data-callout="note"] {
   --callout-color: 100, 149, 237;
   --callout-icon: lucide-layers;
 }
 
 /* ── Hide title bar entirely ───────────────────────── */
-.callout[data-callout="card"] > .callout-title {
+.callout[data-callout="note"] > .callout-title {
   display: none;
 }
 
 /* ── Hide empty paragraphs left by stripped %% lines ── */
-.callout[data-callout="card"] .callout-content p[data-card-empty="true"] {
+.callout[data-callout="note"] .callout-content p[data-card-empty="true"] {
   display: none;
 }
 
 /* == Make the card metadata more subtle ============== */
-.callout[data-callout="card-metadata"] {
+.callout[data-callout="note-metadata"] {
   background-color: transparent;
   border: none;
   padding: 0;
@@ -24,22 +24,22 @@
 }
 
 /* Hide the icon */
-.callout[data-callout="card-metadata"] .callout-icon {
+.callout[data-callout="note-metadata"] .callout-icon {
   display: none;
 }
 
-.callout[data-callout="card-metadata"] .callout-title-inner {
+.callout[data-callout="note-metadata"] .callout-title-inner {
   display: none;
 }
 
 /* Make text grey */
-.callout[data-callout="card-metadata"],
-.callout[data-callout="card-metadata"] * {
+.callout[data-callout="note-metadata"],
+.callout[data-callout="note-metadata"] * {
   color: var(--text-faint);
 }
 
 /* Reduce spacing for paragraphs in card-metadata */
-.callout[data-callout="card-metadata"] .callout-content p {
+.callout[data-callout="note-metadata"] .callout-content p {
   margin-top: 0.25em;
   margin-bottom: 0.25em;
 }
@@ -52,13 +52,13 @@
 
 /* ── Optional: hover-to-reveal study mode ───────────── */
 /* 
-.markdown-reading-view .callout[data-callout="card"] mark {
+.markdown-reading-view .callout[data-callout="note"] mark {
   background-color: var(--text-normal);
   color: transparent;
   cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
 }
-.markdown-reading-view .callout[data-callout="card"] mark:hover {
+.markdown-reading-view .callout[data-callout="note"] mark:hover {
   background-color: rgba(80, 200, 120, 0.25);
   color: var(--text-normal);
 } 

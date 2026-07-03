@@ -1,202 +1,218 @@
 import { Notice, Plugin, TFile, TFolder } from "obsidian";
-import { ClozeSettingTab, PluginSettings } from './settings';
-import { CardFile, filterValidCards } from "./obsidian-card";
-import { generateUpdates, getConfig, syncNotes } from "./anki-note";
-import { getDeckNames, getModelNames } from "./anki-connect";
-import { renderClozeSpans } from "./helpers";
+import { ClozeSettingTab, DEFAULT_SETTINGS, PluginSettings } from './settings/tab';
+import { renderCardClozes } from "./postprocessing";
+
+import { NoteFile } from "./note/file";
+import { resolveConfig, pushNotes } from "./anki/pusher";
+import { AnkiConnectClient } from "./anki/connect-client";
+import { AnkiConfig } from "./anki/payload-factory";
 
 interface PluginData {
-	lastRun: number | null;
+    lastRun: number | null;
+    settings: PluginSettings;
 }
 
 const DEFAULT_DATA: PluginData = {
-	lastRun: null,
-};
-
-const DEFAULT_SETTINGS: PluginSettings = {
-	deckName: 'Default',
-	modelName: 'Cloze',
-	scanFolder: '',
+    lastRun: null,
+    settings: DEFAULT_SETTINGS,
 }
 
 export default class ClozePlugin extends Plugin {
-	data: PluginData = DEFAULT_DATA;
-	settings: PluginSettings = DEFAULT_SETTINGS;
+    settings: PluginSettings = DEFAULT_SETTINGS;
+    private lastRun: number | null = null;
 
-	// Populated asynchronously by loadAnkiSuggestions().
-	// StringSuggest holds a getter that reads these, so it always sees the
-	// latest values without needing to be reconstructed.
-	deckSuggestions: string[] = [];
-	modelSuggestions: string[] = [];
+    // Populated asynchronously by loadAnkiSuggestions(); read by ClozeSettingTab.
+    deckSuggestions: string[] = [];
+    modelSuggestions: string[] = [];
 
-	async onload() {
-		await this.loadSettings()
+    async onload() {
+        console.clear()
+        await this.loadSettings()
+        this.addSettingTab(new ClozeSettingTab(this.app, this));
 
-		const statusBar = this.addStatusBarItem();
+        const statusBar = this.addStatusBarItem();
 
-		this.addCommand({
-			id: 'parse-file',
-			name: "Parse File",
-			callback: async () => {
-				const activeFile = this.app.workspace.getActiveFile();
-				if (!activeFile) return;
-				this.syncCards([activeFile], statusBar);
-			}
-		})
-		this.addCommand({
-			id: 'sync-vault',
-			name: 'Sync Vault',
-			callback: async () => {
-				const folder = this.app.vault.getAbstractFileByPath(this.settings.scanFolder)
-				let files;
-				if (!this.settings.scanFolder) {
-					files = await this.getFilesSinceLastRun();
-				}
-				else if (folder instanceof TFolder) {
-					files = await this.getFilesSinceLastRun(folder);
-				} else {
-					throw Error("Folder is set, but does not point to a valid folder.")
-				}
-				if (files.length === 0) {
-					new Notice("No files to process. Everything is up to date!");
-					return;
-				}
-				if (await this.syncCards(files, statusBar)) {
-					this.updateLastRun();
-				}
-			}
-		})
-		this.addCommand({
-			id: "reset-cache",
-			name: "Reset Cache",
-			callback: async () => {
-				await this.resetLastRun();
-			},
-		});
-		this.registerMarkdownPostProcessor((el: HTMLElement) => {
-			this.renderCardClozes(el);
-		});
+        this.addCommand({
+            id: 'sync-vault',
+            name: 'Sync Vault',
+            callback: async () => void this.runSync(statusBar)
+        })
 
-		// Fetch Anki deck/model names in the background.
-		// Intentionally not awaited so onload() returns immediately.
-		this.loadAnkiSuggestions();
-	}
+        this.addCommand({
+            id: "reset-cache",
+            name: "Reset Cache",
+            callback: async () => void this.resetLastRun()
+        });
 
-	// ── Settings ─────────────────────────────────────────────────────────────
+        this.registerMarkdownPostProcessor((el: HTMLElement) => {
+            renderCardClozes(el);
+        });
 
-	async loadSettings() {
-		const saved = (await this.loadData())
-		this.data = Object.assign({}, DEFAULT_DATA, { lastRun: saved.lastRun ?? null });
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved.settings ?? {})
-		this.addSettingTab(new ClozeSettingTab(this.app, this));
-	}
+        // Fetch Anki deck/model names in the background.
+        // Intentionally not awaited so onload() returns immediately.
+        this.loadAnkiSuggestions();
+    }
 
-	async saveSettings(): Promise<void> {
-		await this.saveData({
-			lastRun: this.data.lastRun,
-			settings: this.settings,
-		});
-	}
+    // ── Settings ─────────────────────────────────────────────────────────────
 
-	// ── Anki suggestions ─────────────────────────────────────────────────────
+    async loadSettings() {
+        const saved = (await this.loadData())
+        this.lastRun = saved?.lastRun ?? DEFAULT_DATA.lastRun;
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, saved.settings ?? {})
+    }
 
-	private async loadAnkiSuggestions(): Promise<void> {
-		try {
-			const [decks, models] = await Promise.all([
-				getDeckNames(),
-				getModelNames(),
-			]);
-			this.deckSuggestions = decks;
-			this.modelSuggestions = models;
-		} catch {
-			// Anki not reachable at startup; suggestions remain empty.
-			// The user can still type values manually.
-		}
-	}
+    async saveSettings(): Promise<void> {
+        const data: PluginData = {
+            lastRun: this.lastRun,
+            settings: this.settings,
+        }
+        await this.saveData(data);
+    }
 
-	// ── Files search for sync ────────────────────────────────────────────────────
+    // ── Anki suggestions ─────────────────────────────────────────────────────
 
-	async getFilesSinceLastRun(folder?: TFolder): Promise<TFile[]> {
-		const { lastRun } = this.data;
+    private async loadAnkiSuggestions(): Promise<void> {
+        try {
+            const client = new AnkiConnectClient()
+            const [decks, models] = await Promise.all([
+                client.fetchDeckNames(),
+                client.fetchModelNames(),
+            ]);
+            this.deckSuggestions = decks;
+            this.modelSuggestions = models;
+        } catch { }
+    }
 
-		// Get files from folder (recursive) or entire vault
-		const files = folder
-			? this.getFilesInFolder(folder)
-			: this.app.vault.getFiles();
+    // ── Sync ──────────────────────────────────────────────────────────────
 
-		if (lastRun === null) {
-			return files;
-		}
+    private async runSync(statusBar: HTMLElement): Promise<void> {
+        const files = this.collectFiles();
+        if (files === null) {
+            new Notice('Scan folder is set but does not point to a valid folder.');
+            return;
+        }
+        if (files.length === 0) {
+            new Notice('No files to process. Everything is up to date!');
+            return;
+        }
 
-		return files.filter((file) => file.stat.mtime > lastRun);
-	}
+        new Notice('Connecting…');
+        const client = new AnkiConnectClient();
 
-	// Recursively get all TFiles within a TFolder
-	getFilesInFolder(folder: TFolder): TFile[] {
-		const files: TFile[] = [];
+        let configResult;
+        try {
+            configResult = await resolveConfig(
+                this.settings.deckName,
+                this.settings.modelName,
+                client
+            );
+        } catch (error: unknown) {
+            new Notice(String(error))
+            return;
+        }
 
-		for (const child of folder.children) {
-			if (child instanceof TFile) {
-				files.push(child);
-			} else if (child instanceof TFolder) {
-				files.push(...this.getFilesInFolder(child));
-			}
-		}
+        new Notice('Connected. Now processing.');
+        const allSucceeded = await this.syncFiles(
+            files,
+            configResult,
+            client,
+            statusBar,
+        );
+        if (allSucceeded) await this.updateLastRun();
+    }
 
-		return files;
-	}
+    private async syncFiles(
+        files: TFile[],
+        config: AnkiConfig,
+        client: AnkiConnectClient,
+        statusBar: HTMLElement,
+    ): Promise<boolean> {
+        let allSucceeded = true;
 
-	private async updateLastRun(): Promise<void> {
-		this.data.lastRun = Date.now();
-		await this.saveData(this.data);
-	}
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (!file) continue;
 
-	private async resetLastRun(): Promise<void> {
-		this.data.lastRun = null;
-		await this.saveData(this.data);
-		new Notice("Last run timestamp reset. Next run will return all files.");
-	}
+            statusBar.setText(`⚙️ Processing: ${i + 1} / ${files.length}`);
 
-	// ── Sync ─────────────────────────────────────────────────────────────
-	private async syncCards(files: TFile[], statusBar: HTMLElement): Promise<boolean> {
-		new Notice("Connecting...");
+            try {
+                await this.processFile(file, config, client);
+            } catch(error: unknown) {
+                allSucceeded = false;
+                new Notice(`Error processing "${file.name}". Check the console for details.`);
+                console.error(`${file.path}: ${String(error)}`);
+            }
+        }
 
-		let config;
-		try {
-			config = await getConfig(this.settings.deckName, this.settings.modelName);
-			if (!config) {
-				throw new Error("No config returned");
-			}
-		} catch (err) {
-			new Notice("Was not able to connect to Anki! Try again.");
-			statusBar.setText("");
-			return false;
-		}
-		new Notice("Connected. Now processing.");
+        statusBar.setText('✅ Done!');
+        new Notice(`Finished processing ${files.length} files.`);
+        setTimeout(() => statusBar.setText(''), 5_000);
+        return allSucceeded;
+    }
 
-		for (let i = 0; i < files.length; i++) {
-			const file = files[i];
-			if (!file) continue;
-			statusBar.setText(`⚙️ Processing: ${i + 1} / ${files.length}`);
-			const cardFile = await CardFile.load(this.app, file);
-			const cardsToSync = filterValidCards(cardFile.cards);
-			const results = await syncNotes(cardsToSync, config);
-			const updates = generateUpdates(cardsToSync, results);
-			await cardFile.writeCards(updates);
-		}
+    /**
+ * Loads one file, pushes its cards to Anki, and writes new IDs back.
+ * All fallible steps return Result — no try/catch needed here.
+ */
+    private async processFile(
+        file: TFile,
+        config: AnkiConfig,
+        client: AnkiConnectClient,
+    ): Promise<void> {
+        const noteFile = await NoteFile.load(this.app, file);
 
-		statusBar.setText("✅ Done!");
-		new Notice(`Finished processing ${files.length} files.`);
-		setTimeout(() => statusBar.setText(""), 5000);
-		return true;
-	}
+        const updates = await pushNotes(
+            noteFile.notes,
+            config,
+            noteFile.context,
+            client,
+        );
+        noteFile.updateNotes(updates);
+    }
 
+    // ── File collection ───────────────────────────────────────────────────────
 
-	// ── Rendering ─────────────────────────────────────────────────────────────
+    /**
+     * Returns files to process filtered by the lastRun timestamp.
+     * Returns null when scanFolder is configured but is not a valid TFolder.
+     */
+    private collectFiles(): TFile[] | null {
+        if (!this.settings.scanFolder) {
+            return this.getFilesModifiedSince(this.lastRun);
+        }
 
-	// Find and render all clozes in flashcards in given block.
-	private renderCardClozes(el: HTMLElement) {
-		const cards = el.querySelectorAll('.callout[data-callout="card"]')
-		cards.forEach(card => renderClozeSpans(card));
-	}
+        const folder = this.app.vault.getAbstractFileByPath(
+            this.settings.scanFolder,
+        );
+        if (!(folder instanceof TFolder)) return null;
+
+        return this.getFilesModifiedSince(this.lastRun, folder);
+    }
+
+    private getFilesModifiedSince(since: number | null, folder?: TFolder): TFile[] {
+        const all = folder ? this.walkFolder(folder) : this.app.vault.getFiles();
+        return since === null ? all : all.filter(f => f.stat.mtime > since);
+    }
+
+    /** Recursively collects every TFile within a TFolder. */
+    private walkFolder(folder: TFolder): TFile[] {
+        const files: TFile[] = [];
+        for (const child of folder.children) {
+            if (child instanceof TFile)        files.push(child);
+            else if (child instanceof TFolder) files.push(...this.walkFolder(child));
+        }
+        return files;
+    }
+
+    // ── Data persistence ────────────────────────────────────────────────────
+    private async updateLastRun(): Promise<void> {
+        this.lastRun = Date.now();
+        await this.saveSettings();
+    }
+
+    private async resetLastRun(): Promise<void> {
+        this.lastRun = null;
+        await this.saveSettings();
+        new Notice("Last run timestamp reset. Next run will return all files.");
+    }
 }
