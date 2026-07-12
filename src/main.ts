@@ -104,13 +104,13 @@ export default class ClozePlugin extends Plugin {
             configResult = await resolveConfig(
                 this.settings.deckName,
                 this.settings.modelName,
+                this.settings.sourceField,
                 client
             );
         } catch (error: unknown) {
             new Notice(String(error))
             return;
         }
-
         new Notice('Connected. Now processing.');
         const allSucceeded = await this.syncFiles(
             files,

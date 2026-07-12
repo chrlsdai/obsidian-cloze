@@ -1,6 +1,6 @@
 import { Note, NoteContext } from "../note/schema";
 import { AddNotesPayload, UpdateNotePayload } from "./connect-client";
-import { convertHTML } from "./html-processing";
+import { convertHTML, buildObsidianOpenUrl } from "./html-processing";
 
 
 export interface NoteModel {
@@ -11,6 +11,7 @@ export interface NoteModel {
 export interface AnkiConfig {
     deckName: string;
     noteModel: NoteModel;
+    sourceField: string;
 }
 
 export class AnkiPayloadFactory {
@@ -51,9 +52,17 @@ export class AnkiPayloadFactory {
             throw new Error('NoteModel must define at least one field.');
         }
 
+        const { sourceField } = this.config;
+
         return {
             [firstField]: convertHTML(note.textElement, this.context),
             ...note.noteFields,
+            ...(sourceField ? {
+                [sourceField]: `<a href="${buildObsidianOpenUrl(
+                    this.context.vaultName,
+                    this.context.filePath
+                )}">` + `${this.context.fileName}</a>`,
+            } : {}),
         };
     }
 }

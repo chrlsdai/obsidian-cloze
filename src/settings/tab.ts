@@ -10,12 +10,14 @@ export interface PluginSettings {
     deckName: string;
     modelName: string;
     scanFolder: string;
+    sourceField: string;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-    deckName: 'Default',
-    modelName: 'Cloze',
-    scanFolder: '',
+    deckName: "Default",
+    modelName: "Cloze",
+    scanFolder: "",
+    sourceField: "",
 };
 
 export class ClozeSettingTab extends PluginSettingTab {
@@ -97,5 +99,18 @@ export class ClozeSettingTab extends PluginSettingTab {
                     },
                 );
             });
+
+        new Setting(containerEl)
+            .setName("Source field")
+            .setDesc("Optional. The name of an Anki field to populate with a link back to the Obsidian file containing the card. Leave empty to disable.")
+            .addText(e => {
+                e.setPlaceholder("e.g. Source")
+                    .setValue(this.plugin.settings.sourceField)
+                    .onChange(async n => {
+                        this.plugin.settings.sourceField = n.trim(),
+                            await this.plugin.saveSettings()
+                    }
+                )
+            })
     }
 }

@@ -41,11 +41,13 @@ export class AnkiNoteUpdateError extends Error {
 export async function resolveConfig(
     deckName: string,
     modelName: string,
+    sourceField: string,
     client: AnkiConnectClient
 ): Promise<AnkiConfig> {
-    const [deckNames, modelNames] = await Promise.all([
+    const [deckNames, modelNames, modelFields] = await Promise.all([
         client.fetchDeckNames(),
         client.fetchModelNames(),
+        client.fetchModelFields(modelName),
     ]);
 
     if (!deckNames.includes(deckName)) {
@@ -64,8 +66,6 @@ export async function resolveConfig(
         )
     }
 
-    const modelFields = await client.fetchModelFields(modelName);
-
     if (!modelFields.length) {
         throw new AnkiConfigError(
             `Note type "${modelName}" has no fields defined in Anki. ` +
@@ -74,9 +74,18 @@ export async function resolveConfig(
         )
     }
 
+    if (sourceField && !modelFields.includes(sourceField)) {
+        throw new AnkiConfigError(
+            `Field "${sourceField}" not found in note type "${modelName}" ` +
+            `Either unset "Source Field" in settings to disable this feature ` +
+            `or edit the note type in Anki under Tools > Manage Note Types.`
+        )
+    }
+
     return {
-        deckName: deckName,
+        deckName,
         noteModel: { name: modelName, fields: modelFields },
+        sourceField,
     };
 }
 

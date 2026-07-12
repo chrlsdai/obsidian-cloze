@@ -52,15 +52,20 @@ export function transformClozes(el: HTMLElement): void {
 
 export function transformInternalLinks(
     el: HTMLElement,
-    ctx: NoteContext,
-    baseUrl = 'obsidian://open'
+    ctx: NoteContext
 ): void {
     for (const link of el.querySelectorAll<HTMLAnchorElement>('a.internal-link[data-href]')) {
         const target = link.dataset.href;
-        if (target) link.href = `${baseUrl}?${new URLSearchParams(
-            { vault: ctx.vaultName, file: target }
-        )}`
+        if (target) link.href = buildObsidianOpenUrl(ctx.vaultName, target)
     };
+}
+
+export function buildObsidianOpenUrl(
+    vaultName: string,
+    fileName: string,
+    baseUrl = 'obsidian://open'
+): string {
+    return `${baseUrl}?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(fileName)}`;
 }
 
 const ALLOWED_ATTRS = new Set(['href', 'src', 'alt', 'title', 'class', 'id']);
