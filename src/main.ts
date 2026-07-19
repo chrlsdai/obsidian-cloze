@@ -8,18 +8,18 @@ import { AnkiConnectClient } from "./anki/connect-client";
 import { AnkiConfig } from "./anki/payload-factory";
 
 interface PluginData {
-    lastRun: number | null;
+    fileSyncTimes: Record<string, number>;
     settings: PluginSettings;
 }
 
 const DEFAULT_DATA: PluginData = {
-    lastRun: null,
+    fileSyncTimes: {},
     settings: DEFAULT_SETTINGS,
 }
 
 export default class ClozePlugin extends Plugin {
     settings: PluginSettings = DEFAULT_SETTINGS;
-    private lastRun: number | null = null;
+    private fileSyncTimes: Record<string, number> = {};
 
     // Populated asynchronously by loadAnkiSuggestions(); read by ClozeSettingTab.
     deckSuggestions: string[] = [];
@@ -41,7 +41,7 @@ export default class ClozePlugin extends Plugin {
         this.addCommand({
             id: "reset-cache",
             name: "Reset Cache",
-            callback: async () => void this.resetLastRun()
+            callback: async () => void this.resetCache()
         });
 
         this.registerMarkdownPostProcessor((el: HTMLElement) => {
@@ -57,13 +57,13 @@ export default class ClozePlugin extends Plugin {
 
     async loadSettings() {
         const saved = (await this.loadData())
-        this.lastRun = saved?.lastRun ?? DEFAULT_DATA.lastRun;
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, saved.settings ?? {})
+        this.fileSyncTimes = saved?.fileSyncTimes ?? {};
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, saved?.settings ?? {})
     }
 
     async saveSettings(): Promise<void> {
         const data: PluginData = {
-            lastRun: this.lastRun,
+            fileSyncTimes: this.fileSyncTimes,
             settings: this.settings,
         }
         await this.saveData(data);
@@ -112,13 +112,13 @@ export default class ClozePlugin extends Plugin {
             return;
         }
         new Notice('Connected. Now processing.');
-        const allSucceeded = await this.syncFiles(
+
+        await this.syncFiles(
             files,
             configResult,
             client,
             statusBar,
         );
-        if (allSucceeded) await this.updateLastRun();
     }
 
     private async syncFiles(
@@ -126,9 +126,7 @@ export default class ClozePlugin extends Plugin {
         config: AnkiConfig,
         client: AnkiConnectClient,
         statusBar: HTMLElement,
-    ): Promise<boolean> {
-        let allSucceeded = true;
-
+    ): Promise<void> {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             if (!file) continue;
@@ -137,17 +135,17 @@ export default class ClozePlugin extends Plugin {
 
             try {
                 await this.processFile(file, config, client);
-            } catch(error: unknown) {
-                allSucceeded = false;
+                this.fileSyncTimes[file.path] = Date.now();
+            } catch (error: unknown) {
                 new Notice(`Error processing "${file.name}". Check the console for details.`);
                 console.error(`${file.path}: ${String(error)}`);
             }
         }
 
+        await this.saveSettings();
         statusBar.setText('✅ Done!');
         new Notice(`Finished processing ${files.length} files.`);
         setTimeout(() => statusBar.setText(''), 5_000);
-        return allSucceeded;
     }
 
     /**
@@ -177,41 +175,34 @@ export default class ClozePlugin extends Plugin {
      * Returns null when scanFolder is configured but is not a valid TFolder.
      */
     private collectFiles(): TFile[] | null {
-        if (!this.settings.scanFolder) {
-            return this.getFilesModifiedSince(this.lastRun);
-        }
-
+        if (!this.settings.scanFolder) return this.getFilesNeedingSync();
         const folder = this.app.vault.getAbstractFileByPath(
             this.settings.scanFolder,
         );
-        if (!(folder instanceof TFolder)) return null;
-
-        return this.getFilesModifiedSince(this.lastRun, folder);
+        return folder instanceof TFolder ? this.getFilesNeedingSync(folder) : null;
     }
 
-    private getFilesModifiedSince(since: number | null, folder?: TFolder): TFile[] {
-        const all = folder ? this.walkFolder(folder) : this.app.vault.getFiles();
-        return since === null ? all : all.filter(f => f.stat.mtime > since);
+    private getFilesNeedingSync(folder?: TFolder): TFile[] {
+        const files = folder ? this.walkFolder(folder) : this.app.vault.getFiles();
+        return files.filter(file => {
+            const lastSync = this.fileSyncTimes[file.path];
+            return lastSync === undefined || file.stat.mtime > lastSync;
+        });
     }
 
     /** Recursively collects every TFile within a TFolder. */
     private walkFolder(folder: TFolder): TFile[] {
         const files: TFile[] = [];
         for (const child of folder.children) {
-            if (child instanceof TFile)        files.push(child);
+            if (child instanceof TFile) files.push(child);
             else if (child instanceof TFolder) files.push(...this.walkFolder(child));
         }
         return files;
     }
 
     // ── Data persistence ────────────────────────────────────────────────────
-    private async updateLastRun(): Promise<void> {
-        this.lastRun = Date.now();
-        await this.saveSettings();
-    }
-
-    private async resetLastRun(): Promise<void> {
-        this.lastRun = null;
+    private async resetCache(): Promise<void> {
+        this.fileSyncTimes = {};
         await this.saveSettings();
         new Notice("Last run timestamp reset. Next run will return all files.");
     }
