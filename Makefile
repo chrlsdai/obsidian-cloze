@@ -1,4 +1,4 @@
-DEST := /Users/charlesdai/Documents/HMS/Medical Learning/.obsidian/plugins/o2a
+DEST := /Users/charlesdai/Documents/HMS/Medical Learning/.obsidian/plugins/obsidian-cloze
 SRC  := .
 
 transfer:
@@ -12,3 +12,6 @@ dev:
 
 test:
 	npm test
+
+code-text:
+	find src -type f | xargs tail -n +1 > code-text.txt

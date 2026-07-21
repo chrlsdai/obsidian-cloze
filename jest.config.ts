@@ -1,5 +1,6 @@
-/** @type {import('ts-jest').JestConfigWithTsJest} */
-module.exports = {
+import type { JestConfigWithTsJest } from 'ts-jest'
+
+const config: JestConfigWithTsJest = {
     preset: 'ts-jest',
     testEnvironment: 'jsdom',
 
@@ -30,8 +31,9 @@ module.exports = {
     coverageDirectory: '<rootDir>/coverage',
     coverageReporters: ['text', 'lcov', 'html'],
 
-    // Reset mock state between tests so they don't bleed into each other
     clearMocks: true,
     restoreMocks: true,
     verbose: true
 };
+
+export default config;
