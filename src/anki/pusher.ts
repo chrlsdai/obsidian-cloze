@@ -1,8 +1,6 @@
 import { Note, NoteContext, NoteUpdate } from "../note/schema";
-import { AnkiConnectClient } from "./connect-client"
+import { AnkiConnectClient } from "./connect-client";
 import { AnkiConfig, AnkiPayloadFactory } from "./payload-factory";
-
-const DEFAULT_CHUNK_SIZE = 10;
 
 interface IndexedNote {
     note: Note;
@@ -24,17 +22,6 @@ export class AnkiNoteRejectedError extends Error {
             `Open the Anki browser and search for existing cards with the same content.`
         );
         this.name = "AnkiNoteRejectedError";
-    }
-}
-
-export class AnkiNoteUpdateError extends Error {
-    constructor(noteId: string) {
-        super(
-            `Failed to update note ${noteId} in Anki. ` +
-            `The note may have been manually deleted from Anki. ` +
-            `Remove the ID from this note in Obsidian to re-add it as a new card.`
-        );
-        this.name = "AnkiNoteUpdateError";
     }
 }
 
@@ -63,7 +50,7 @@ export async function resolveConfig(
             `Note type "${modelName}" not found in Anki. ` +
             `Available note types: ${modelNames.length ? modelNames.join(", ") : "none"}. ` +
             `Check your plugin settings or create the note type in Anki first.`
-        )
+        );
     }
 
     if (!modelFields.length) {
@@ -71,15 +58,15 @@ export async function resolveConfig(
             `Note type "${modelName}" has no fields defined in Anki. ` +
             `A note type needs at least one field to create cards. ` +
             `Edit the note type in Anki under Tools > Manage Note Types.`
-        )
+        );
     }
 
     if (sourceField && !modelFields.includes(sourceField)) {
         throw new AnkiConfigError(
-            `Field "${sourceField}" not found in note type "${modelName}" ` +
+            `Field "${sourceField}" not found in note type "${modelName}". ` +
             `Either unset "Source Field" in settings to disable this feature ` +
             `or edit the note type in Anki under Tools > Manage Note Types.`
-        )
+        );
     }
 
     return {
@@ -88,7 +75,6 @@ export async function resolveConfig(
         sourceField,
     };
 }
-
 
 export async function pushNotes(
     notes: ReadonlyArray<Note>,
@@ -101,7 +87,7 @@ export async function pushNotes(
 
     const indexed = notes.map((note, index) => ({ note, index }));
 
-    const toAdd = indexed.filter(({ note }) => !note.id);
+    const toAdd    = indexed.filter(({ note }) => !note.id);
     const toUpdate = indexed.filter(({ note }) => !!note.id);
 
     await Promise.all([
@@ -121,8 +107,13 @@ async function addNotes(
     if (!items.length) return;
 
     const payload = factory.buildAddNotesPayload(items.map(({ note }) => note));
-    console.log(payload)
+    console.log(payload);
     const newIds = await client.addNotes(payload);
+
+    const rejectedCount = newIds.filter(id => id == null).length;
+    if (rejectedCount > 0) {
+        throw new AnkiNoteRejectedError(rejectedCount, items.length);
+    }
 
     items.forEach(({ index }, i) => {
         if (newIds[i] != null) updates[index] = { id: String(newIds[i]) };
@@ -133,24 +124,9 @@ async function updateNotes(
     items: IndexedNote[],
     factory: AnkiPayloadFactory,
     client: AnkiConnectClient,
-    chunkSize = DEFAULT_CHUNK_SIZE,
 ): Promise<void> {
-    await processInChunks(
-        items,
-        ({ note }) => client.updateNote(factory.buildUpdateNotePayload(note)),
-        chunkSize
-    );
-}
+    if (!items.length) return;
 
-/**
- * Processes items in sequential batches, with concurrency within each batch.
- */
-async function processInChunks<T>(
-    items: T[],
-    process: (item: T) => Promise<void>,
-    chunkSize = DEFAULT_CHUNK_SIZE
-): Promise<void> {
-    for (let i = 0; i < items.length; i += chunkSize) {
-        await Promise.all(items.slice(i, i + chunkSize).map(process));
-    }
+    const payload = factory.buildUpdateNotesPayload(items.map(({ note }) => note));
+    await client.updateNotes(payload);
 }

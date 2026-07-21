@@ -1,5 +1,5 @@
 import { Note, NoteContext } from "../note/schema";
-import { AddNotesPayload, UpdateNotePayload } from "./connect-client";
+import { AddNotesPayload, UpdateNotesPayload } from "./connect-client";
 import { convertHTML, buildObsidianOpenUrl } from "./html-processing";
 
 
@@ -33,15 +33,17 @@ export class AnkiPayloadFactory {
         };
     }
 
-    buildUpdateNotePayload(note: Note): UpdateNotePayload {
-        if (note.id === undefined) {
-            throw new Error('Cannot build an update payload: note has no id.');
-        }
+    buildUpdateNotesPayload(notes: Note[]): UpdateNotesPayload {
         return {
-            note: {
-                id: note.id,
-                fields: this.buildFields(note),
-            },
+            notes: notes.map((note) => {
+                if (note.id === undefined) {
+                    throw new Error('Cannot build an update payload: note has no id.');
+                }
+                return {
+                    id: note.id,
+                    fields: this.buildFields(note),
+                };
+            }),
         };
     }
 
