@@ -12,13 +12,7 @@ import { convertHTML } from '../src/anki/html-processing';
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 jest.mock('../src/anki/html-processing');
-
-// Note and NoteContext are interfaces that compile away; the module may still
-// have runtime exports, so mock it to an empty object to prevent accidental
-// real Obsidian dependencies from running.
 jest.mock('../src/note/schema', () => ({}));
-
-// anki-connect-client types are pure interfaces — nothing to mock.
 
 // ── Typed mock handle ────────────────────────────────────────────────────────
 
@@ -53,6 +47,7 @@ function makeConfig(overrides: Partial<AnkiConfig> = {}): AnkiConfig {
             name: 'Basic',
             fields: ['Front', 'Back'] as readonly string[],
         },
+        sourceField: '',
         ...overrides,
     };
 }
@@ -180,9 +175,9 @@ describe('AnkiPayloadFactory', () => {
             const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
             const note = makeNote({ id: 1_705_000_000_000 });
 
-            const payload = factory.buildUpdateNotePayload(note);
+            const payload = factory.buildUpdateNotesPayload([note]);
 
-            expect(payload.note.id).toBe(1_705_000_000_000);
+            expect(payload.notes[0]!.id).toBe(1_705_000_000_000);
         });
 
         it('includes the freshly converted HTML content so edits reach Anki', () => {
@@ -190,9 +185,9 @@ describe('AnkiPayloadFactory', () => {
             const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
             const note = makeNote({ id: 42 });
 
-            const payload = factory.buildUpdateNotePayload(note);
+            const payload = factory.buildUpdateNotesPayload([note]);
 
-            expect(payload.note.fields['Front']).toBe('<p>Updated explanation</p>');
+            expect(payload.notes[0]!.fields['Front']).toBe('<p>Updated explanation</p>');
         });
 
         it('also includes any extra noteFields so no field is lost on update', () => {
@@ -202,9 +197,21 @@ describe('AnkiPayloadFactory', () => {
             const factory = new AnkiPayloadFactory(config, stubContext);
             const note = makeNote({ id: 7, noteFields: { Back: 'The answer' } });
 
-            const payload = factory.buildUpdateNotePayload(note);
+            const payload = factory.buildUpdateNotesPayload([note]);
 
-            expect(payload.note.fields['Back']).toBe('The answer');
+            expect(payload.notes[0]!.fields['Back']).toBe('The answer');
+        });
+
+        it('batches multiple notes into a single payload', () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+            const notes = [makeNote({ id: 1 }), makeNote({ id: 2 }), makeNote({ id: 3 })];
+
+            const payload = factory.buildUpdateNotesPayload(notes);
+
+            expect(payload.notes).toHaveLength(3);
+            expect(payload.notes[0]!.id).toBe(1);
+            expect(payload.notes[1]!.id).toBe(2);
+            expect(payload.notes[2]!.id).toBe(3);
         });
 
     });
@@ -217,7 +224,7 @@ describe('AnkiPayloadFactory', () => {
             const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
             const unsyncedNote = makeNote({ id: undefined });
 
-            expect(() => factory.buildUpdateNotePayload(unsyncedNote)).toThrow(
+            expect(() => factory.buildUpdateNotesPayload([unsyncedNote])).toThrow(
                 'Cannot build an update payload: note has no id.',
             );
         });
@@ -359,7 +366,7 @@ describe('AnkiPayloadFactory', () => {
             });
             const factory = new AnkiPayloadFactory(config, stubContext);
 
-            expect(() => factory.buildUpdateNotePayload(makeNote({ id: 1 }))).toThrow(
+            expect(() => factory.buildUpdateNotesPayload([makeNote({ id: 1 })])).toThrow(
                 'NoteModel must define at least one field.',
             );
         });

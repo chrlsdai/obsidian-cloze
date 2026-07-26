@@ -1,8 +1,5 @@
 /**
- * Tests for anki-service.ts
- *
- * The source file is assumed to live at `./anki-service`.
- * Adjust the import path below if the filename differs.
+ * Tests for anki-pusher.ts
  */
 
 import {
@@ -10,8 +7,8 @@ import {
     pushNotes,
     AnkiConfigError,
     AnkiNoteRejectedError,
-    AnkiNoteUpdateError,
 } from '../src/anki/pusher';
+import { AnkiNoteUpdateError } from '../src/anki/connect-client';
 import type { Note, NoteContext } from '../src/note/schema';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -21,7 +18,7 @@ import type { Note, NoteContext } from '../src/note/schema';
 jest.mock('../src/anki/payload-factory', () => ({
     AnkiPayloadFactory: jest.fn().mockImplementation(() => ({
         buildAddNotesPayload: jest.fn().mockReturnValue({ notes: [] }),
-        buildUpdateNotePayload: jest.fn().mockReturnValue({ id: 0, fields: {} }),
+        buildUpdateNotesPayload: jest.fn().mockReturnValue({ notes: [] }),
     })),
 }));
 
@@ -32,7 +29,7 @@ type MockClient = {
     fetchModelNames: jest.Mock;
     fetchModelFields: jest.Mock;
     addNotes: jest.Mock;
-    updateNote: jest.Mock;
+    updateNotes: jest.Mock;
 };
 
 /** Builds a fully-functional mock client with valid defaults for every method. */
@@ -42,14 +39,14 @@ function makeClient(overrides: Partial<MockClient> = {}): MockClient {
         fetchModelNames: jest.fn().mockResolvedValue(['Basic', 'Cloze']),
         fetchModelFields: jest.fn().mockResolvedValue(['Front', 'Back']),
         addNotes: jest.fn().mockResolvedValue([]),
-        updateNote: jest.fn().mockResolvedValue(undefined),
+        updateNotes: jest.fn().mockResolvedValue(undefined),
         ...overrides,
     };
 }
 
 /** A note without an id has never been sent to Anki; with an id it already exists. */
-function makeNote(id?: string): Note {
-    return { id } as Note;
+function makeNote(id?: number): Note {
+    return { id } as unknown as Note;
 }
 
 const CONTEXT = {} as NoteContext;
@@ -57,6 +54,7 @@ const CONTEXT = {} as NoteContext;
 const VALID_CONFIG = {
     deckName: 'My Deck',
     noteModel: { name: 'Basic', fields: ['Front', 'Back'] },
+    sourceField: '',
 };
 
 // ── resolveConfig ─────────────────────────────────────────────────────────────
@@ -65,11 +63,12 @@ describe('resolveConfig — user configures deck and note type in plugin setting
     it('returns the full config when the deck and note type both exist in Anki', async () => {
         const client = makeClient();
 
-        const config = await resolveConfig('My Deck', 'Basic', client as any);
+        const config = await resolveConfig('My Deck', 'Basic', '', client as any);
 
         expect(config).toEqual({
             deckName: 'My Deck',
             noteModel: { name: 'Basic', fields: ['Front', 'Back'] },
+            sourceField: '',
         });
     });
 
@@ -78,9 +77,21 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchModelFields: jest.fn().mockResolvedValue(['Front', 'Back', 'Source']),
         });
 
-        const config = await resolveConfig('My Deck', 'Basic', client as any);
+        const config = await resolveConfig('My Deck', 'Basic', '', client as any);
 
         expect(config.noteModel.fields).toEqual(['Front', 'Back', 'Source']);
+    });
+
+    it('fetches deck names, model names, and model fields concurrently in a single round trip', async () => {
+        // All three API calls are issued together via Promise.all before any
+        // validation runs — this keeps latency to one network round-trip.
+        const client = makeClient();
+
+        await resolveConfig('My Deck', 'Basic', '', client as any);
+
+        expect(client.fetchDeckNames).toHaveBeenCalledTimes(1);
+        expect(client.fetchModelNames).toHaveBeenCalledTimes(1);
+        expect(client.fetchModelFields).toHaveBeenCalledWith('Basic');
     });
 
     // ── Missing deck ──────────────────────────────────────────────────────────
@@ -90,7 +101,7 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchDeckNames: jest.fn().mockResolvedValue(['Default']),
         });
 
-        await expect(resolveConfig('Missing Deck', 'Basic', client as any))
+        await expect(resolveConfig('Missing Deck', 'Basic', '', client as any))
             .rejects.toThrow(AnkiConfigError);
     });
 
@@ -99,7 +110,7 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchDeckNames: jest.fn().mockResolvedValue(['Default', 'Spanish']),
         });
 
-        await expect(resolveConfig('Wrong Deck', 'Basic', client as any))
+        await expect(resolveConfig('Wrong Deck', 'Basic', '', client as any))
             .rejects.toThrow(/Available decks: Default, Spanish/);
     });
 
@@ -109,7 +120,7 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchDeckNames: jest.fn().mockResolvedValue([]),
         });
 
-        await expect(resolveConfig('Any Deck', 'Basic', client as any))
+        await expect(resolveConfig('Any Deck', 'Basic', '', client as any))
             .rejects.toThrow(/Available decks: none/);
     });
 
@@ -120,7 +131,7 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchModelNames: jest.fn().mockResolvedValue(['Basic', 'Cloze']),
         });
 
-        await expect(resolveConfig('My Deck', 'Missing Model', client as any))
+        await expect(resolveConfig('My Deck', 'Missing Model', '', client as any))
             .rejects.toThrow(AnkiConfigError);
     });
 
@@ -129,7 +140,7 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchModelNames: jest.fn().mockResolvedValue(['Basic', 'Cloze']),
         });
 
-        await expect(resolveConfig('My Deck', 'Missing Model', client as any))
+        await expect(resolveConfig('My Deck', 'Missing Model', '', client as any))
             .rejects.toThrow(/Available note types: Basic, Cloze/);
     });
 
@@ -139,21 +150,8 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchModelNames: jest.fn().mockResolvedValue([]),
         });
 
-        await expect(resolveConfig('My Deck', 'Basic', client as any))
+        await expect(resolveConfig('My Deck', 'Basic', '', client as any))
             .rejects.toThrow(/Available note types: none/);
-    });
-
-    it('does not fetch model fields when the note type validation already failed', async () => {
-        // Fetching fields for a non-existent model would be a wasted (and potentially
-        // confusing) network call.
-        const client = makeClient({
-            fetchModelNames: jest.fn().mockResolvedValue(['Basic']),
-        });
-
-        await expect(resolveConfig('My Deck', 'NonExistent', client as any))
-            .rejects.toThrow(AnkiConfigError);
-
-        expect(client.fetchModelFields).not.toHaveBeenCalled();
     });
 
     // ── Note type has no fields ───────────────────────────────────────────────
@@ -163,7 +161,7 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchModelFields: jest.fn().mockResolvedValue([]),
         });
 
-        await expect(resolveConfig('My Deck', 'Basic', client as any))
+        await expect(resolveConfig('My Deck', 'Basic', '', client as any))
             .rejects.toThrow(AnkiConfigError);
     });
 
@@ -172,8 +170,34 @@ describe('resolveConfig — user configures deck and note type in plugin setting
             fetchModelFields: jest.fn().mockResolvedValue([]),
         });
 
-        await expect(resolveConfig('My Deck', 'Basic', client as any))
+        await expect(resolveConfig('My Deck', 'Basic', '', client as any))
             .rejects.toThrow(/Edit the note type in Anki/);
+    });
+
+    // ── Source field validation ───────────────────────────────────────────────
+
+    it('throws AnkiConfigError when sourceField is set but is not present in the model', async () => {
+        const client = makeClient();
+        // Default model fields are ['Front', 'Back']; 'Source' is not among them.
+        await expect(resolveConfig('My Deck', 'Basic', 'Source', client as any))
+            .rejects.toThrow(AnkiConfigError);
+    });
+
+    it('does not throw when sourceField is empty (the feature is disabled)', async () => {
+        const client = makeClient();
+
+        await expect(resolveConfig('My Deck', 'Basic', '', client as any))
+            .resolves.toBeDefined();
+    });
+
+    it('succeeds and includes sourceField in the config when it matches a model field', async () => {
+        const client = makeClient({
+            fetchModelFields: jest.fn().mockResolvedValue(['Front', 'Back', 'Source']),
+        });
+
+        const config = await resolveConfig('My Deck', 'Basic', 'Source', client as any);
+
+        expect(config.sourceField).toBe('Source');
     });
 });
 
@@ -196,7 +220,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             await pushNotes([], VALID_CONFIG, CONTEXT, client as any);
 
             expect(client.addNotes).not.toHaveBeenCalled();
-            expect(client.updateNote).not.toHaveBeenCalled();
+            expect(client.updateNotes).not.toHaveBeenCalled();
         });
     });
 
@@ -245,38 +269,51 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             expect(client.addNotes).toHaveBeenCalledTimes(1);
         });
 
-        it('leaves the update entry empty when Anki rejects a note with a null ID', async () => {
-            // LIKELY MISS: a null in the middle of the ID array must not shift the IDs
-            // for the notes that follow — each position must map back to the original index.
+        it('throws AnkiNoteRejectedError when Anki returns null for any note ID', async () => {
+            // When Anki rejects a note (e.g. duplicate) it returns null in the ID array.
+            // The pusher surfaces this as a hard error so the user can investigate.
             const client = makeClient({
                 addNotes: jest.fn().mockResolvedValue([111, null, 333]),
             });
 
-            const result = await pushNotes(
-                [makeNote(), makeNote(), makeNote()],
-                VALID_CONFIG,
-                CONTEXT,
-                client as any,
-            );
+            await expect(
+                pushNotes(
+                    [makeNote(), makeNote(), makeNote()],
+                    VALID_CONFIG,
+                    CONTEXT,
+                    client as any,
+                )
+            ).rejects.toThrow(AnkiNoteRejectedError);
+        });
 
-            expect(result[0]).toEqual({ id: '111' });
-            expect(result[1]).toEqual({});    // rejected — Anki returned null
-            expect(result[2]).toEqual({ id: '333' });
+        it('includes the rejected and total counts in the AnkiNoteRejectedError message', async () => {
+            const client = makeClient({
+                addNotes: jest.fn().mockResolvedValue([null, null, 333]),
+            });
+
+            await expect(
+                pushNotes(
+                    [makeNote(), makeNote(), makeNote()],
+                    VALID_CONFIG,
+                    CONTEXT,
+                    client as any,
+                )
+            ).rejects.toThrow(/2 of 3/);
         });
     });
 
     describe('updating notes that already exist in Anki', () => {
-        it('calls updateNote once for each note that has an existing Anki ID', async () => {
+        it('sends all existing-note updates in a single batched updateNotes call', async () => {
             const client = makeClient();
 
             await pushNotes(
-                [makeNote('101'), makeNote('102'), makeNote('103')],
+                [makeNote(101), makeNote(102), makeNote(103)],
                 VALID_CONFIG,
                 CONTEXT,
                 client as any,
             );
 
-            expect(client.updateNote).toHaveBeenCalledTimes(3);
+            expect(client.updateNotes).toHaveBeenCalledTimes(1);
         });
 
         it('returns an empty update object for each existing note (the ID does not change)', async () => {
@@ -284,7 +321,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             const client = makeClient();
 
             const result = await pushNotes(
-                [makeNote('101'), makeNote('102')],
+                [makeNote(101), makeNote(102)],
                 VALID_CONFIG,
                 CONTEXT,
                 client as any,
@@ -298,7 +335,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             const client = makeClient();
 
             await pushNotes(
-                [makeNote('101'), makeNote('102')],
+                [makeNote(101), makeNote(102)],
                 VALID_CONFIG,
                 CONTEXT,
                 client as any,
@@ -314,12 +351,12 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 addNotes: jest.fn().mockResolvedValue([999]),
             });
             // Position 0: existing, 1: new, 2: existing
-            const notes = [makeNote('101'), makeNote(), makeNote('103')];
+            const notes = [makeNote(101), makeNote(), makeNote(103)];
 
             await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
             expect(client.addNotes).toHaveBeenCalledTimes(1);
-            expect(client.updateNote).toHaveBeenCalledTimes(2);
+            expect(client.updateNotes).toHaveBeenCalledTimes(1);
         });
 
         it('writes the new Anki ID back to the correct position in the result array', async () => {
@@ -329,7 +366,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 addNotes: jest.fn().mockResolvedValue([555, 666]),
             });
             // Position 0: existing, positions 1–2: new
-            const notes = [makeNote('existing-id'), makeNote(), makeNote()];
+            const notes = [makeNote(1), makeNote(), makeNote()];
 
             const result = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
@@ -342,7 +379,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             const client = makeClient({
                 addNotes: jest.fn().mockResolvedValue([888]),
             });
-            const notes = [makeNote('101'), makeNote(), makeNote('103')];
+            const notes = [makeNote(101), makeNote(), makeNote(103)];
 
             const result = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
@@ -350,33 +387,36 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
         });
     });
 
-    describe('large batches — chunked update processing', () => {
-        it('updates every note when the count exceeds one chunk (more than 10)', async () => {
+    describe('large batches — all updates sent in a single request', () => {
+        it('sends all existing-note updates in one updateNotes call regardless of count', async () => {
             const client = makeClient();
-            const notes = Array.from({ length: 25 }, (_, i) => makeNote(`id-${i}`));
+            const notes = Array.from({ length: 25 }, (_, i) => makeNote(i + 1));
 
             await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
-            expect(client.updateNote).toHaveBeenCalledTimes(25);
+            expect(client.updateNotes).toHaveBeenCalledTimes(1);
         });
 
-        it('handles exactly 10 notes (one full chunk) without dropping any', async () => {
+        it('returns the correct number of update entries for a large batch of existing notes', async () => {
             const client = makeClient();
-            const notes = Array.from({ length: 10 }, (_, i) => makeNote(`id-${i}`));
+            const notes = Array.from({ length: 25 }, (_, i) => makeNote(i + 1));
 
-            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const result = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
-            expect(client.updateNote).toHaveBeenCalledTimes(10);
+            expect(result).toHaveLength(25);
+            result.forEach(entry => expect(entry).toEqual({}));
         });
 
-        it('handles 11 notes (one full chunk + one remainder) updating all of them', async () => {
-            // LIKELY MISS: an off-by-one in the chunk loop could silently drop the last item
-            const client = makeClient();
-            const notes = Array.from({ length: 11 }, (_, i) => makeNote(`id-${i}`));
+        it('sends all new notes in one addNotes call regardless of count', async () => {
+            const ids = Array.from({ length: 25 }, (_, i) => i + 1);
+            const client = makeClient({
+                addNotes: jest.fn().mockResolvedValue(ids),
+            });
+            const notes = Array.from({ length: 25 }, () => makeNote());
 
             await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
-            expect(client.updateNote).toHaveBeenCalledTimes(11);
+            expect(client.addNotes).toHaveBeenCalledTimes(1);
         });
     });
 });
@@ -413,19 +453,28 @@ describe('exported error classes — messages guide the user toward a fix', () =
 
     describe('AnkiNoteUpdateError', () => {
         it('is an instance of Error with name AnkiNoteUpdateError', () => {
-            const err = new AnkiNoteUpdateError('abc123');
+            const err = new AnkiNoteUpdateError([{ id: 42, error: 'not found' }]);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('AnkiNoteUpdateError');
         });
 
         it('includes the failing note ID so the user can find the affected card', () => {
-            const err = new AnkiNoteUpdateError('1700000001234');
+            const err = new AnkiNoteUpdateError([{ id: 1700000001234, error: 'not found' }]);
             expect(err.message).toContain('1700000001234');
         });
 
-        it('advises the user to remove the ID from Obsidian to re-add as a fresh card', () => {
-            const err = new AnkiNoteUpdateError('abc123');
-            expect(err.message).toMatch(/Remove the ID/);
+        it('advises the user to remove the IDs from Obsidian to re-add as fresh cards', () => {
+            const err = new AnkiNoteUpdateError([{ id: 42, error: 'some error' }]);
+            expect(err.message).toMatch(/Remove their IDs in Obsidian/);
+        });
+
+        it('exposes the structured failures array for programmatic inspection', () => {
+            const failures = [
+                { id: 101, error: 'note not found' },
+                { id: 202, error: 'permission denied' },
+            ];
+            const err = new AnkiNoteUpdateError(failures);
+            expect(err.failures).toEqual(failures);
         });
     });
 });

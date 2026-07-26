@@ -141,7 +141,7 @@ describe("user's note contains internal links that should open inside Obsidian",
         const link = el.querySelector<HTMLAnchorElement>('a')!;
         expect(link.href).toContain('obsidian://open');
         expect(link.href).toContain('vault=MyVault');
-        expect(link.href).toContain('file=My+Note');
+        expect(link.href).toContain('file=My%20Note');
     });
 
     it('uses the vault name from the note context, not a hard-coded default', () => {
@@ -179,14 +179,14 @@ describe("user's note contains internal links that should open inside Obsidian",
         expect(el.innerHTML).toBe(before);
     });
 
-    it('URL-encodes spaces in the linked file name', () => {
+    it('percent-encodes spaces in the linked file name using %20', () => {
+        // encodeURIComponent encodes spaces as %20 (not + as URLSearchParams would).
         const el = makeEl(
             '<a class="internal-link" data-href="Long Note Title">link</a>'
         );
         transformInternalLinks(el, ctx);
         const href = el.querySelector<HTMLAnchorElement>('a')!.href;
-        // URLSearchParams encodes spaces as +; the raw filename must not appear verbatim
-        expect(href).toContain('file=Long+Note+Title');
+        expect(href).toContain('file=Long%20Note%20Title');
         expect(href).not.toContain('file=Long Note Title');
     });
 
@@ -329,7 +329,7 @@ describe('user exports a note through the full conversion pipeline', () => {
         expect(result).toContain('{{c2::Paris::European capital}}');
         expect(result).toContain('{{c1::France}}');
         expect(result).toContain('vault=MyVault');
-        expect(result).toContain('file=European+Geography');
+        expect(result).toContain('file=European%20Geography');
         expect(result).not.toContain('data-href=');
     });
 

@@ -165,7 +165,7 @@ export default class ClozePlugin extends Plugin {
             noteFile.context,
             client,
         );
-        noteFile.updateNotes(updates);
+        await noteFile.updateNotes(updates);
     }
 
     // ── File collection ───────────────────────────────────────────────────────
