@@ -107,7 +107,6 @@ async function addNotes(
     if (!items.length) return;
 
     const payload = factory.buildAddNotesPayload(items.map(({ note }) => note));
-    console.log(payload);
     const newIds = await client.addNotes(payload);
 
     const rejectedCount = newIds.filter(id => id == null).length;

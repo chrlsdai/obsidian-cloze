@@ -78,7 +78,7 @@ export class AnkiConnectClient {
         const results = await this._ankiRequest<MultiResult[]>("multi", { actions });
 
         const failures = results.flatMap((r, i) =>
-            r.error !== null ? [{ id: payload.notes[i]!.id, error: r.error }] : []
+            r !== null && r.error !== null ? [{ id: payload.notes[i]!.id, error: r.error }] : []
         );
 
         if (failures.length > 0) {

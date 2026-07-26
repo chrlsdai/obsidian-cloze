@@ -26,7 +26,7 @@ export default class ClozePlugin extends Plugin {
     modelSuggestions: string[] = [];
 
     async onload() {
-        console.clear()
+        // console.clear()
         await this.loadSettings()
         this.addSettingTab(new ClozeSettingTab(this.app, this));
 
