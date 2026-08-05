@@ -67,6 +67,21 @@ export class AnkiConnectClient {
     }
 
     /**
+     * Returns the IDs of all Anki notes matching `query` (AnkiConnect
+     * search syntax, e.g. `deck:"Default"`).
+     */
+    async findNotes(query: string): Promise<number[]> {
+        return this._ankiRequest<number[]>("findNotes", { query });
+    }
+
+    /**
+     * Adds one or more space-separated `tags` to every note in `notes`.
+     */
+    async addTags(notes: number[], tags: string): Promise<void> {
+        await this._ankiRequest<null>("addTags", { notes, tags });
+    }
+
+    /**
      * Sends all note updates in a single `multi` request.
      * @throws {AnkiNoteUpdateError} If any individual update is rejected by Anki.
      */

@@ -145,7 +145,7 @@ _deploy-prod:
 
 # Copy plugin files to $(DEST)
 _copy-files:
-	for f in $(PLUGIN_FILES); do \
+	@for f in $(PLUGIN_FILES); do \
 		if [ -f "$$f" ]; then \
 			cp "$$f" "$(DEST)/$$f"; \
 			printf "  $(C_GREEN)copied$(C_RESET)  $$f\n"; \

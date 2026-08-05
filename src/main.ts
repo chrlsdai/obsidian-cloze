@@ -6,6 +6,7 @@ import { NoteFile } from "./note/file";
 import { resolveConfig, pushNotes } from "./anki/pusher";
 import { AnkiConnectClient } from "./anki/connect-client";
 import { AnkiConfig } from "./anki/payload-factory";
+import { tagFloatingNotes, FLOATING_TAG } from "./anki/tagger";
 
 interface PluginData {
     fileSyncTimes: Record<string, number>;
@@ -26,8 +27,8 @@ export default class ClozePlugin extends Plugin {
     modelSuggestions: string[] = [];
 
     async onload() {
-        // console.clear()
-        await this.loadSettings()
+        console.clear();
+        await this.loadSettings();
         this.addSettingTab(new ClozeSettingTab(this.app, this));
 
         const statusBar = this.addStatusBarItem();
@@ -36,12 +37,18 @@ export default class ClozePlugin extends Plugin {
             id: 'sync-vault',
             name: 'Sync Vault',
             callback: async () => void this.runSync(statusBar)
-        })
+        });
 
         this.addCommand({
             id: "reset-cache",
             name: "Reset Cache",
             callback: async () => void this.resetCache()
+        });
+
+        this.addCommand({
+            id: "tag-floating-notes",
+            name: "Tag Floating Notes",
+            callback: async () => void this.runTagFloatingNotes()
         });
 
         this.registerMarkdownPostProcessor((el: HTMLElement) => {
@@ -86,7 +93,7 @@ export default class ClozePlugin extends Plugin {
     // ── Sync ──────────────────────────────────────────────────────────────
 
     private async runSync(statusBar: HTMLElement): Promise<void> {
-        const files = this.collectFiles();
+        const files = this.collectFilesNeedingSync();
         if (files === null) {
             new Notice('Scan folder is set but does not point to a valid folder.');
             return;
@@ -149,9 +156,8 @@ export default class ClozePlugin extends Plugin {
     }
 
     /**
- * Loads one file, pushes its cards to Anki, and writes new IDs back.
- * All fallible steps return Result — no try/catch needed here.
- */
+     * Loads one file, pushes its cards to Anki, and writes new IDs back.
+     */
     private async processFile(
         file: TFile,
         config: AnkiConfig,
@@ -168,26 +174,89 @@ export default class ClozePlugin extends Plugin {
         await noteFile.updateNotes(updates);
     }
 
+    // ── Tag floating notes ────────────────────────────────────────────────────
+
+    /**
+     * Scans the entire vault (respecting scanFolder), collects every Anki note
+     * ID that still exists in Obsidian, then tags any Anki note in the
+     * configured deck whose ID is absent from that set.
+     */
+    private async runTagFloatingNotes(): Promise<void> {
+        const allFiles = this.collectScopedFiles();
+        if (allFiles === null) {
+            new Notice('Scan folder is set but does not point to a valid folder.');
+            return;
+        }
+
+        new Notice('Scanning vault for note IDs…');
+        const vaultNoteIds = await this.collectVaultNoteIds(allFiles);
+
+        new Notice('Connecting to Anki…');
+        const client = new AnkiConnectClient();
+
+        try {
+            const count = await tagFloatingNotes(
+                this.settings.deckName,
+                vaultNoteIds,
+                client,
+            );
+            if (count === 0) {
+                new Notice('No floating notes found.');
+            } else {
+                new Notice(`Tagged ${count} floating note(s) with "${FLOATING_TAG}".`);
+            }
+        } catch (error: unknown) {
+            new Notice(`Failed to tag floating notes: ${String(error)}`);
+        }
+    }
+
+    /**
+     * Loads every file in `files` and accumulates the Anki IDs of all notes
+     * found within them.  Files that fail to parse are skipped with a console
+     * warning so that one bad file cannot abort the entire scan.
+     */
+    private async collectVaultNoteIds(files: TFile[]): Promise<Set<number>> {
+        const ids = new Set<number>();
+        for (const file of files) {
+            try {
+                const noteFile = await NoteFile.load(this.app, file);
+                for (const note of noteFile.notes) {
+                    if (note.id !== undefined) ids.add(note.id);
+                }
+            } catch (error: unknown) {
+                console.warn(
+                    `Skipping "${file.path}" while collecting note IDs: ${String(error)}`
+                );
+            }
+        }
+        return ids;
+    }
+
     // ── File collection ───────────────────────────────────────────────────────
 
     /**
-     * Returns files to process filtered by the lastRun timestamp.
-     * Returns null when scanFolder is configured but is not a valid TFolder.
+     * Returns every TFile within the configured scan scope:
+     * the whole vault when scanFolder is empty, or the named folder's tree
+     * otherwise. Returns null when scanFolder is set but does not resolve to
+     * a valid TFolder.
      */
-    private collectFiles(): TFile[] | null {
-        if (!this.settings.scanFolder) return this.getFilesNeedingSync();
+    private collectScopedFiles(): TFile[] | null {
+        if (!this.settings.scanFolder) return this.app.vault.getFiles();
         const folder = this.app.vault.getAbstractFileByPath(
             this.settings.scanFolder,
         );
-        return folder instanceof TFolder ? this.getFilesNeedingSync(folder) : null;
+        return folder instanceof TFolder ? this.walkFolder(folder) : null;
     }
 
-    private getFilesNeedingSync(folder?: TFolder): TFile[] {
-        const files = folder ? this.walkFolder(folder) : this.app.vault.getFiles();
-        return files.filter(file => {
+    /**
+     * Returns only those scoped files that have been modified since their last
+     * sync. Returns null when the scan scope itself cannot be resolved.
+     */
+    private collectFilesNeedingSync(): TFile[] | null {
+        return this.collectScopedFiles()?.filter(file => {
             const lastSync = this.fileSyncTimes[file.path];
             return lastSync === undefined || file.stat.mtime > lastSync;
-        });
+        }) ?? null;
     }
 
     /** Recursively collects every TFile within a TFolder. */
