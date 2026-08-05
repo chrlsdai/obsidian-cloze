@@ -1,8 +1,7 @@
 
 /* ── Card callout base ─────────────────────────────── */
 .callout[data-callout="note"] {
-  --callout-color: 100, 149, 237;
-  --callout-icon: lucide-layers;
+  --callout-color:  #6495ED;
 }
 
 /* ── Hide title bar entirely ───────────────────────── */
@@ -10,12 +9,7 @@
   display: none;
 }
 
-/* ── Hide empty paragraphs left by stripped %% lines ── */
-.callout[data-callout="note"] .callout-content p[data-card-empty="true"] {
-  display: none;
-}
-
-/* == Make the card metadata more subtle ============== */
+/* ── Make the card metadata more subtle ────────────── */
 .callout[data-callout="note-metadata"] {
   background-color: transparent;
   border: none;
@@ -23,7 +17,7 @@
   margin-top: 0.25em;
 }
 
-/* Hide the icon */
+/* Hide the title and icon */
 .callout[data-callout="note-metadata"] .callout-icon {
   display: none;
 }
@@ -45,7 +39,7 @@
 }
 
 
-/* == Style card cloze ================================= */
+/* ── Style card cloze ───────────────────────────────── */
 .cloze {
   color: var(--text-accent);
 }
