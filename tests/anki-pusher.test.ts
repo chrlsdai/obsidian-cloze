@@ -206,12 +206,12 @@ describe('resolveConfig — user configures deck and note type in plugin setting
 describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
 
     describe('nothing to sync', () => {
-        it('returns an empty array when the note list is empty', async () => {
+        it('returns an empty updates array and no errors when the note list is empty', async () => {
             const client = makeClient();
 
             const result = await pushNotes([], VALID_CONFIG, CONTEXT, client as any);
 
-            expect(result).toEqual([]);
+            expect(result).toEqual({ updates: [], errors: [] });
         });
 
         it('makes no API calls when there are no notes', async () => {
@@ -230,15 +230,16 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 addNotes: jest.fn().mockResolvedValue([111, 222]),
             });
 
-            const result = await pushNotes(
+            const { updates, errors } = await pushNotes(
                 [makeNote(), makeNote()],
                 VALID_CONFIG,
                 CONTEXT,
                 client as any,
             );
 
-            expect(result[0]).toEqual({ id: '111' });
-            expect(result[1]).toEqual({ id: '222' });
+            expect(updates[0]).toEqual({ id: '111' });
+            expect(updates[1]).toEqual({ id: '222' });
+            expect(errors).toEqual([]);
         });
 
         it('stores the Anki ID as a string, not a number', async () => {
@@ -248,10 +249,10 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 addNotes: jest.fn().mockResolvedValue([1700000001234]),
             });
 
-            const result = await pushNotes([makeNote()], VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes([makeNote()], VALID_CONFIG, CONTEXT, client as any);
 
-            expect(typeof result[0]!.id).toBe('string');
-            expect(result[0]!.id).toBe('1700000001234');
+            expect(typeof updates[0]!.id).toBe('string');
+            expect(updates[0]!.id).toBe('1700000001234');
         });
 
         it('batches all new notes into a single addNotes call', async () => {
@@ -269,21 +270,23 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             expect(client.addNotes).toHaveBeenCalledTimes(1);
         });
 
-        it('throws AnkiNoteRejectedError when Anki returns null for any note ID', async () => {
+        it('reports an AnkiNoteRejectedError in `errors` when Anki returns null for any note ID', async () => {
             // When Anki rejects a note (e.g. duplicate) it returns null in the ID array.
-            // The pusher surfaces this as a hard error so the user can investigate.
+            // The pusher surfaces this as an error rather than throwing, so the caller
+            // still gets back whatever IDs did succeed (see the "partial failure" tests below).
             const client = makeClient({
                 addNotes: jest.fn().mockResolvedValue([111, null, 333]),
             });
 
-            await expect(
-                pushNotes(
-                    [makeNote(), makeNote(), makeNote()],
-                    VALID_CONFIG,
-                    CONTEXT,
-                    client as any,
-                )
-            ).rejects.toThrow(AnkiNoteRejectedError);
+            const { errors } = await pushNotes(
+                [makeNote(), makeNote(), makeNote()],
+                VALID_CONFIG,
+                CONTEXT,
+                client as any,
+            );
+
+            expect(errors).toHaveLength(1);
+            expect(errors[0]).toBeInstanceOf(AnkiNoteRejectedError);
         });
 
         it('includes the rejected and total counts in the AnkiNoteRejectedError message', async () => {
@@ -291,14 +294,68 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 addNotes: jest.fn().mockResolvedValue([null, null, 333]),
             });
 
-            await expect(
-                pushNotes(
-                    [makeNote(), makeNote(), makeNote()],
-                    VALID_CONFIG,
-                    CONTEXT,
-                    client as any,
-                )
-            ).rejects.toThrow(/2 of 3/);
+            const { errors } = await pushNotes(
+                [makeNote(), makeNote(), makeNote()],
+                VALID_CONFIG,
+                CONTEXT,
+                client as any,
+            );
+
+            expect(errors[0]!.message).toMatch(/2 of 3/);
+        });
+
+        it('still records the IDs of notes that Anki accepted despite other notes in the same batch being rejected', async () => {
+            // This is the core regression case: a single duplicate/rejected note must not
+            // cause the successfully-added notes in the same batch to lose their IDs — losing
+            // them here would make the plugin re-submit (and duplicate) them on the next sync.
+            const client = makeClient({
+                addNotes: jest.fn().mockResolvedValue([111, null, 333]),
+            });
+
+            const { updates, errors } = await pushNotes(
+                [makeNote(), makeNote(), makeNote()],
+                VALID_CONFIG,
+                CONTEXT,
+                client as any,
+            );
+
+            expect(updates[0]).toEqual({ id: '111' });
+            expect(updates[1]).toEqual({});
+            expect(updates[2]).toEqual({ id: '333' });
+            expect(errors).toHaveLength(1);
+        });
+
+        it('does not let a rejected addNotes batch prevent existing-note updates from being applied', async () => {
+            // Regression coverage for the fix: addNotes and updateNotes must not run
+            // behind a single all-or-nothing Promise.all — a rejection on one side
+            // must not discard the results (or block the completion) of the other.
+            const client = makeClient({
+                addNotes: jest.fn().mockResolvedValue([null]),
+            });
+            // Position 0: existing (goes through updateNotes), position 1: new (rejected)
+            const notes = [makeNote(101), makeNote()];
+
+            const { updates, errors } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+
+            expect(client.updateNotes).toHaveBeenCalledTimes(1);
+            expect(updates[0]).toEqual({});
+            expect(updates[1]).toEqual({});
+            expect(errors).toHaveLength(1);
+            expect(errors[0]).toBeInstanceOf(AnkiNoteRejectedError);
+        });
+
+        it('collects errors from both addNotes and updateNotes when both fail in the same call', async () => {
+            const client = makeClient({
+                addNotes: jest.fn().mockResolvedValue([null]),
+                updateNotes: jest.fn().mockRejectedValue(new AnkiNoteUpdateError([{ id: 101, error: 'not found' }])),
+            });
+            const notes = [makeNote(101), makeNote()];
+
+            const { errors } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+
+            expect(errors).toHaveLength(2);
+            expect(errors.some(e => e instanceof AnkiNoteRejectedError)).toBe(true);
+            expect(errors.some(e => e instanceof AnkiNoteUpdateError)).toBe(true);
         });
     });
 
@@ -320,15 +377,15 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             // LIKELY MISS: a wrong implementation might write a new id field into these entries
             const client = makeClient();
 
-            const result = await pushNotes(
+            const { updates } = await pushNotes(
                 [makeNote(101), makeNote(102)],
                 VALID_CONFIG,
                 CONTEXT,
                 client as any,
             );
 
-            expect(result[0]).toEqual({});
-            expect(result[1]).toEqual({});
+            expect(updates[0]).toEqual({});
+            expect(updates[1]).toEqual({});
         });
 
         it('does not call addNotes when every note already has an Anki ID', async () => {
@@ -368,11 +425,11 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             // Position 0: existing, positions 1–2: new
             const notes = [makeNote(1), makeNote(), makeNote()];
 
-            const result = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
-            expect(result[0]).toEqual({});          // existing — no new ID
-            expect(result[1]).toEqual({ id: '555' });
-            expect(result[2]).toEqual({ id: '666' });
+            expect(updates[0]).toEqual({});          // existing — no new ID
+            expect(updates[1]).toEqual({ id: '555' });
+            expect(updates[2]).toEqual({ id: '666' });
         });
 
         it('always returns exactly as many update entries as input notes', async () => {
@@ -381,9 +438,9 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             });
             const notes = [makeNote(101), makeNote(), makeNote(103)];
 
-            const result = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
-            expect(result).toHaveLength(3);
+            expect(updates).toHaveLength(3);
         });
     });
 
@@ -401,10 +458,10 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             const client = makeClient();
             const notes = Array.from({ length: 25 }, (_, i) => makeNote(i + 1));
 
-            const result = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
 
-            expect(result).toHaveLength(25);
-            result.forEach(entry => expect(entry).toEqual({}));
+            expect(updates).toHaveLength(25);
+            updates.forEach(entry => expect(entry).toEqual({}));
         });
 
         it('sends all new notes in one addNotes call regardless of count', async () => {

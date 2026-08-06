@@ -19,9 +19,6 @@ ANKI_PROD_PROFILE   := Medical Learning
 # --- Anki user data directory ---
 ANKI_DATA_DIR       := $(HOME)/Library/Application Support/Anki2
 
-# --- Anki user data directory ---
-ANKI_DATA_DIR       := $(HOME)/Library/Application Support/Anki2
-
 # --- Files to deploy ---
 PLUGIN_FILES        := main.js manifest.json data.json styles.css
 
@@ -29,8 +26,8 @@ PLUGIN_FILES        := main.js manifest.json data.json styles.css
 BACKUP_ROOT         := $(HOME)/Documents/$(PLUGIN_NAME)-backups
 
 # --- Source dump settings ---
-SRC_DIR      := src
-DUMP_FILE    := code-text.txt
+SRC_DIR             := src
+DUMP_FILE           := code-text.txt
 
 # -----------------------------------------------------------------------------
 # Internals — Do not edit below unless you know what you're doing
@@ -67,11 +64,11 @@ endef
 # Phony declarations
 # =============================================================================
 
-.PHONY: all help build watch dev prod \
-        _deploy-test _deploy-prod \
-        switch-test switch-prod \
+.PHONY: all help build watch dev prod transfer \
+        _deploy-prod _copy-files \
+        switch-test switch-prod _kill-anki \
         backup backup-anki backup-obsidian \
-        clean clean-backups
+        test dump
 
 
 # =============================================================================
@@ -119,7 +116,7 @@ watch: ## Live-rebuild on file changes (Ctrl+C to stop)
 # Environments
 # =============================================================================
 
-dev: build _deploy-test switch-test ## Build → deploy to test vault → switch Anki to test profile
+dev: build switch-test ## Build (in place, repo == test plugin dir) → switch Anki to test profile
 	@printf "\n$(C_BOLD)$(C_GREEN)✓ Test environment ready$(C_RESET)\n"
 	@printf "  Plugin dir : $(TEST_PLUGIN_DIR)\n"
 	@printf "  Anki       : $(ANKI_TEST_PROFILE)\n"
@@ -138,36 +135,37 @@ transfer: build _deploy-prod ## Build → deploy to prod vault
 # Internal deploy helpers
 # =============================================================================
 
-_deploy-prod:
-	$(call log_info,Deploying to production vault...)
-	@$(MAKE) _copy-files DEST="$(PROD_PLUGIN_DIR)"
+_deploy-prod: DEST := $(PROD_PLUGIN_DIR)
+_deploy-prod: _copy-files
 	$(call log_ok,Production vault updated)
 
 # Copy plugin files to $(DEST)
 _copy-files:
-	@for f in $(PLUGIN_FILES); do \
+	@mkdir -p "$(DEST)"
+	@missing=0; \
+	for f in $(PLUGIN_FILES); do \
 		if [ -f "$$f" ]; then \
 			cp "$$f" "$(DEST)/$$f"; \
 			printf "  $(C_GREEN)copied$(C_RESET)  $$f\n"; \
 		else \
 			printf "$(C_RED)  ✗ Required file missing: $$f$(C_RESET)\n"; \
+			missing=1; \
 		fi \
 	done; \
+	exit $$missing
 
 # =============================================================================
 # Anki profile switching
 # =============================================================================
 
-switch-test: ## Restart Anki with the test profile
+switch-test: _kill-anki ## Restart Anki with the test profile
 	$(call log_info,Switching Anki to test profile: $(ANKI_TEST_PROFILE))
-	@$(MAKE) --no-print-directory _kill-anki
 	@sleep 1
 	@open -a Anki --args -p "$(ANKI_TEST_PROFILE)"
 	$(call log_ok,Anki launched with profile: $(ANKI_TEST_PROFILE))
 
-switch-prod: ## Restart Anki with the production profile
+switch-prod: _kill-anki ## Restart Anki with the production profile
 	$(call log_info,Switching Anki to production profile: $(ANKI_PROD_PROFILE))
-	@$(MAKE) --no-print-directory _kill-anki
 	@sleep 1
 	@open -a Anki --args -p "$(ANKI_PROD_PROFILE)"
 	$(call log_ok,Anki launched with profile: $(ANKI_PROD_PROFILE))
@@ -175,7 +173,7 @@ switch-prod: ## Restart Anki with the production profile
 # Gracefully kill Anki regardless of capitalisation; OK if not running
 _kill-anki:
 	@printf "  Closing Anki...\n"
-	@pkill -x pkill -x anki 2>/dev/null || true
+	@pkill -ix anki 2>/dev/null || true
 
 # =============================================================================
 # Backup
@@ -222,6 +220,6 @@ test: ## Run the test suite (npm test)
 
 dump: ## Concatenate all source files into $(DUMP_FILE) with filename headers
 	$(call log_info,Dumping $(SRC_DIR)/ → $(DUMP_FILE)...)
-	find $(SRC_DIR) -type f | xargs tail -n +1 > $(DUMP_FILE)
+	@find $(SRC_DIR) -type f | xargs tail -n +1 > $(DUMP_FILE)
 	$(call log_ok,Wrote $$(wc -l < "$(DUMP_FILE)") lines to $(DUMP_FILE))
 

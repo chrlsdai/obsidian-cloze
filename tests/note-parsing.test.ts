@@ -218,6 +218,47 @@ describe('multiple notes', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Nested note callouts are excluded (top-level only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('nested note callouts are excluded (top-level only)', () => {
+    // NOTE_SELECTOR must only match top-level `[!note]` callouts, mirroring
+    // the restriction NOTE_HEADER_REGEX enforces on raw Markdown — otherwise
+    // the DOM-based count here and the line-based count in locateNotes()
+    // would disagree and NoteFile would throw NoteFileMismatchError.
+
+    it('a [!note] nested inside another [!note] is not parsed as its own Note', () => {
+        const outer = makeNoteEl();
+        const inner = makeNoteEl('<p>nested</p>');
+        outer.querySelector('.callout-content')!.appendChild(inner);
+
+        expect(parseFrom(outer)).toHaveLength(1);
+    });
+
+    it('a [!note] nested inside a different-type callout is not parsed at all', () => {
+        const tip = document.createElement('div');
+        tip.classList.add('callout');
+        tip.setAttribute('data-callout', 'tip');
+        const tipContent = document.createElement('div');
+        tipContent.classList.add('callout-content');
+        tipContent.appendChild(makeNoteEl('<p>nested</p>'));
+        tip.appendChild(tipContent);
+
+        expect(parseFrom(tip)).toEqual([]);
+    });
+
+    it('the outer note is still parsed normally, with the nested note as ordinary body content', () => {
+        const outer = makeNoteEl();
+        const inner = makeNoteEl('<p id="inner-body">nested</p>');
+        outer.querySelector('.callout-content')!.appendChild(inner);
+
+        const [n] = parseFrom(outer);
+
+        expect(n!.textElement.querySelector('#inner-body')).not.toBeNull();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Malformed: missing .callout-content
 // ─────────────────────────────────────────────────────────────────────────────
 

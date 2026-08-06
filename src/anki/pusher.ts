@@ -76,12 +76,24 @@ export async function resolveConfig(
     };
 }
 
+/**
+ * The outcome of a {@link pushNotes} call. `updates` always reflects every
+ * Anki ID that was successfully obtained, even when `errors` is non-empty —
+ * callers should persist `updates` unconditionally before surfacing `errors`,
+ * so a failure on one side (e.g. a rejected duplicate) never discards IDs
+ * that were legitimately assigned on the other side.
+ */
+export interface PushResult {
+    updates: NoteUpdate[];
+    errors: Error[];
+}
+
 export async function pushNotes(
     notes: ReadonlyArray<Note>,
     config: AnkiConfig,
     context: NoteContext,
     client: AnkiConnectClient
-): Promise<Array<NoteUpdate>> {
+): Promise<PushResult> {
     const factory = new AnkiPayloadFactory(config, context);
     const updates: NoteUpdate[] = notes.map(() => ({}));
 
@@ -90,12 +102,22 @@ export async function pushNotes(
     const toAdd    = indexed.filter(({ note }) => !note.id);
     const toUpdate = indexed.filter(({ note }) => !!note.id);
 
-    await Promise.all([
+    // Run independently rather than via a single Promise.all: addNotes writes
+    // successful IDs into `updates` before it can throw, but a shared
+    // all-or-nothing await would still let a rejection from either side
+    // short-circuit before the caller ever sees `updates`. Promise.allSettled
+    // guarantees both finish and lets us report failures without losing the
+    // successes recorded on the other side.
+    const results = await Promise.allSettled([
         addNotes(toAdd, factory, client, updates),
         updateNotes(toUpdate, factory, client),
     ]);
 
-    return updates;
+    const errors = results
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map(r => r.reason as Error);
+
+    return { updates, errors };
 }
 
 async function addNotes(
@@ -109,14 +131,18 @@ async function addNotes(
     const payload = factory.buildAddNotesPayload(items.map(({ note }) => note));
     const newIds = await client.addNotes(payload);
 
+    // Anki adds each note independently, so IDs for the notes that succeeded
+    // must be recorded even if others in the same batch were rejected —
+    // otherwise a single duplicate would cause every other note in this
+    // batch to be re-added (and duplicated) on the next sync.
+    items.forEach(({ index }, i) => {
+        if (newIds[i] != null) updates[index] = { id: String(newIds[i]) };
+    });
+
     const rejectedCount = newIds.filter(id => id == null).length;
     if (rejectedCount > 0) {
         throw new AnkiNoteRejectedError(rejectedCount, items.length);
     }
-
-    items.forEach(({ index }, i) => {
-        if (newIds[i] != null) updates[index] = { id: String(newIds[i]) };
-    });
 }
 
 async function updateNotes(

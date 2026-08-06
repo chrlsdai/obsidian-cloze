@@ -157,6 +157,11 @@ export default class ClozePlugin extends Plugin {
 
     /**
      * Loads one file, pushes its cards to Anki, and writes new IDs back.
+     *
+     * IDs are persisted before any push error is thrown, so a partial
+     * failure (e.g. one duplicate note rejected by Anki) doesn't cause the
+     * successfully-added notes in the same file to lose their IDs and get
+     * duplicated on the next sync.
      */
     private async processFile(
         file: TFile,
@@ -165,13 +170,19 @@ export default class ClozePlugin extends Plugin {
     ): Promise<void> {
         const noteFile = await NoteFile.load(this.app, file);
 
-        const updates = await pushNotes(
+        const { updates, errors } = await pushNotes(
             noteFile.notes,
             config,
             noteFile.context,
             client,
         );
         await noteFile.updateNotes(updates);
+
+        if (errors.length > 0) {
+            throw errors.length === 1
+                ? errors[0]!
+                : new Error(errors.map(e => e.message).join('\n'));
+        }
     }
 
     // ── Tag floating notes ────────────────────────────────────────────────────
