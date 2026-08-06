@@ -7,7 +7,7 @@
 
 import { AnkiPayloadFactory, AnkiConfig } from '../src/anki/payload-factory';
 import { Note, NoteContext } from '../src/note/schema';
-import { convertHTML } from '../src/anki/html-processing';
+import { convertHtml } from '../src/anki/html-processing';
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ jest.mock('../src/note/schema', () => ({}));
 
 // ── Typed mock handle ────────────────────────────────────────────────────────
 
-const mockConvertHTML = convertHTML as jest.MockedFunction<typeof convertHTML>;
+const mockConvertHTML = convertHtml as jest.MockedFunction<typeof convertHtml>;
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ function makeConfig(overrides: Partial<AnkiConfig> = {}): AnkiConfig {
     };
 }
 
-/** Minimal context — the factory forwards it to convertHTML unchanged. */
+/** Minimal context — the factory forwards it to convertHtml unchanged. */
 const stubContext = {} as NoteContext;
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ describe('AnkiPayloadFactory', () => {
 
         it('converts each note\'s content independently', () => {
             // LIKELY MISS: a careless implementation might cache/re-use the
-            // first convertHTML result for all notes.
+            // first convertHtml result for all notes.
             mockConvertHTML
                 .mockReturnValueOnce('<p>Question one</p>')
                 .mockReturnValueOnce('<p>Question two</p>');
@@ -255,7 +255,7 @@ describe('AnkiPayloadFactory', () => {
             expect(payload.notes[0]!.fields['Source']).toBe('p.42');
         });
 
-        it('only calls convertHTML once per note, not once per field', () => {
+        it('only calls convertHtml once per note, not once per field', () => {
             const config = makeConfig({
                 noteModel: {
                     name: 'Big model',

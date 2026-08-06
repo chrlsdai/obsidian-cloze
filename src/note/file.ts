@@ -10,17 +10,17 @@ import { locateNotes, applyNoteUpdates } from "./writing";
  * refuses further writes.
  */
 export class NoteFile {
-    private _notes: Note[] = [];
-    private _locations: NoteLocation[] = [];
-    private _isStale = false;
-    private _markdown: string = '';
+    private noteList: Note[] = [];
+    private locations: NoteLocation[] = [];
+    private isStale = false;
+    private markdown: string = '';
 
     private constructor(
-        private readonly _context: NoteContext,
-        private readonly _write: (content: string) => Promise<void>,
+        private readonly ctx: NoteContext,
+        private readonly write: (content: string) => Promise<void>,
     ) { }
 
-    // ── Construction ──────────────────────────────────────────────────────────
+    // ── Construction ─────────────────────────────────────────────────────────────
 
     /**
      * Reads the file, renders its markdown to HTML, and cross-references
@@ -33,56 +33,55 @@ export class NoteFile {
      *   raw markdown differs from the number of notes parsed from rendered HTML.
      */
     static async load(app: App, file: TFile): Promise<NoteFile> {
-        const context: NoteContext = {
+        const ctx: NoteContext = {
             vaultName: app.vault.getName(),
             fileName: file.name,
             filePath: file.path
         }
         const instance = new NoteFile(
-            context,
+            ctx,
             (content) => app.vault.modify(file, content),
         );
-        await instance._parse(app, file);
+        await instance.parse(app, file);
         return instance;
     }
 
-    // ── Accessors ────────────────────────────────────────────────────────────
+    // ── Accessors ────────────────────────────────────────────────────────────────
 
     get notes(): ReadonlyArray<Note> {
-        return this._notes;
+        return this.noteList;
     }
 
     get context(): NoteContext {
-        return this._context;
+        return this.ctx;
     }
 
     get needsReload(): boolean {
-        return this._isStale;
+        return this.isStale;
     }
 
-    // ── Read ─────────────────────────────────────────────────────────────────
+    // ── Read ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Reads and parses the file, populating `_markdown`, `_locations`,
-     * and `_notes`.
+     * Reads and parses the file, populating `markdown`, `locations`, and `noteList`.
      *
      * @param app  - The Obsidian app instance.
      * @param file - The vault file to parse.
      * @throws {NoteFileMismatchError} If located and parsed note counts differ.
      */
-    private async _parse(app: App, file: TFile): Promise<void> {
+    private async parse(app: App, file: TFile): Promise<void> {
         const markdown = await app.vault.read(file);
         const locations = locateNotes(markdown);
-        const container = await this._renderToElement(app, markdown, file.path);
+        const container = await this.renderToElement(app, markdown, file.path);
         const rawNotes = parseNotesFromElement(container);
 
         if (rawNotes.length !== locations.length) {
             throw new NoteFileMismatchError(locations.length, rawNotes.length);
         }
 
-        this._markdown = markdown;
-        this._locations = locations;
-        this._notes = rawNotes;
+        this.markdown = markdown;
+        this.locations = locations;
+        this.noteList = rawNotes;
     }
 
     /**
@@ -93,7 +92,7 @@ export class NoteFile {
      * @param filePath - Path of the source file, used for resolving links.
      * @returns A `div` element containing the rendered output.
      */
-    private async _renderToElement(
+    private async renderToElement(
         app: App,
         markdown: string,
         filePath: string,
@@ -109,7 +108,7 @@ export class NoteFile {
         return container;
     }
 
-    // ── Write ────────────────────────────────────────────────────────────────
+    // ── Write ────────────────────────────────────────────────────────────────────
 
     /**
      * Applies field updates to notes and writes the result back to disk.
@@ -122,36 +121,36 @@ export class NoteFile {
      * @throws {RangeError} If `updates.length` does not match `notes.length`.
      */
     async updateNotes(updates: Array<NoteUpdate>): Promise<void> {
-        this._assertFresh();
+        this.assertFresh();
 
-        if (updates.length !== this._notes.length) {
+        if (updates.length !== this.noteList.length) {
             throw new RangeError(
-                `updates length ${updates.length} does not match note count ${this._notes.length}.`,
+                `updates length ${updates.length} does not match note count ${this.noteList.length}.`,
             );
         }
 
-        let result = this._markdown;
+        let result = this.markdown;
         for (const idx of [...updates.keys()].sort((a, b) => b - a)) {
             const fields = updates[idx];
             if (fields === undefined) continue;
             if (Object.keys(fields).length === 0) continue;
-            const location = this._locations[idx];
+            const location = this.locations[idx];
             if (!location) {
                 throw new Error(`Internal error: missing location at note index ${idx}. This is a bug in NoteFile.`);
             }
             result = applyNoteUpdates(result, location, fields);
         }
 
-        if (result === this._markdown) return;
+        if (result === this.markdown) return;
 
-        await this._write(result);
-        this._isStale = true;
+        await this.write(result);
+        this.isStale = true;
     }
 
-    // ── Guard ────────────────────────────────────────────────────────────────
+    // ── Guard ────────────────────────────────────────────────────────────────────
 
-    private _assertFresh(): void {
-        if (this._isStale) {
+    private assertFresh(): void {
+        if (this.isStale) {
             throw new NoteFileStaleError();
         }
     }

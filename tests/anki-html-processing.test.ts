@@ -9,7 +9,7 @@
  */
 
 import {
-    convertHTML,
+    convertHtml,
     transformClozes,
     transformInternalLinks,
     stripAttributes,
@@ -288,7 +288,7 @@ describe('user exports a note through the full conversion pipeline', () => {
             'Read <a class="internal-link" data-href="France">France</a>.' +
             '</p>'
         );
-        const result = convertHTML(el, ctx);
+        const result = convertHtml(el, ctx);
 
         expect(result).toContain('{{c1::Paris}}');
         expect(result).toContain('obsidian://open');
@@ -304,13 +304,13 @@ describe('user exports a note through the full conversion pipeline', () => {
             '<p><span class="cloze" data-keep="yes">word</span></p>'
         );
         const snapshotBefore = el.innerHTML;
-        convertHTML(el, ctx);
+        convertHtml(el, ctx);
         expect(el.innerHTML).toBe(snapshotBefore);
     });
 
     it('returns the inner HTML of the root container, not a new wrapping element', () => {
         const el = makeEl('<p>Hello world</p>');
-        const result = convertHTML(el, ctx);
+        const result = convertHtml(el, ctx);
         expect(result).toBe('<p>Hello world</p>');
         expect(result.startsWith('<div')).toBe(false);
     });
@@ -324,7 +324,7 @@ describe('user exports a note through the full conversion pipeline', () => {
             'More: <a class="internal-link" data-href="European Geography">link</a>.' +
             '</p>'
         );
-        const result = convertHTML(el, ctx);
+        const result = convertHtml(el, ctx);
 
         expect(result).toContain('{{c2::Paris::European capital}}');
         expect(result).toContain('{{c1::France}}');
@@ -340,7 +340,7 @@ describe('user exports a note through the full conversion pipeline', () => {
             ' is the answer to <span class="cloze">everything</span>.' +
             '</p>'
         );
-        const result = convertHTML(el, ctx);
+        const result = convertHtml(el, ctx);
         expect(result).toContain('{{c1::42::a number}}');
         expect(result).toContain('{{c2::everything}}');
     });
@@ -349,7 +349,7 @@ describe('user exports a note through the full conversion pipeline', () => {
         const el = makeEl(
             '<p>A paragraph with <strong>bold</strong> and <em>italic</em> text.</p>'
         );
-        const result = convertHTML(el, ctx);
+        const result = convertHtml(el, ctx);
         expect(result).toBe(
             '<p>A paragraph with <strong>bold</strong> and <em>italic</em> text.</p>'
         );
@@ -357,7 +357,7 @@ describe('user exports a note through the full conversion pipeline', () => {
 
     it('returns an empty string for an empty note without throwing', () => {
         const el = makeEl('');
-        expect(() => convertHTML(el, ctx)).not.toThrow();
-        expect(convertHTML(el, ctx)).toBe('');
+        expect(() => convertHtml(el, ctx)).not.toThrow();
+        expect(convertHtml(el, ctx)).toBe('');
     });
 });

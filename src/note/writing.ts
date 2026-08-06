@@ -108,8 +108,6 @@ export function applyNoteUpdates(
     const lastIndex = lines.length - 1;
     const { noteStart, noteEnd, metaStart, metaEnd } = location;
 
-    // ── noteStart / noteEnd validity ───────────────────────────────────────
-
     if (noteStart < 0) {
         throw new RangeError(
             `noteStart (${noteStart}) must be a valid line index (>= 0)`
@@ -131,8 +129,6 @@ export function applyNoteUpdates(
             `noteEnd (${noteEnd}) exceeds the last line index (${lastIndex})`
         );
     }
-
-    // ── metaStart / metaEnd consistency ────────────────────────────────────
 
     const hasMetaStart = metaStart !== -1;
     const hasMetaEnd = metaEnd !== -1;
@@ -166,8 +162,6 @@ export function applyNoteUpdates(
             );
         }
     }
-
-    // ── Apply updates ──────────────────────────────────────────────────────
 
     if (metaStart === -1) {
         lines.splice(noteStart + 1, 0, METADATA_HEADER, ...entriesToLines(fields));

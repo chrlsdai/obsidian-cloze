@@ -87,8 +87,6 @@ async function loadWithNotes(n: number, content = '## markdown'): Promise<Loaded
     return { noteFile, notes, locations, vaultModify, file };
 }
 
-// ── Suite ──────────────────────────────────────────────────────────────────────
-
 describe('NoteFile', () => {
     /** Stub component instance returned by every `new Component()` call. */
     let mockComponent: { load: jest.Mock; unload: jest.Mock };
@@ -105,8 +103,6 @@ describe('NoteFile', () => {
         mockParseNotesFromElement.mockReturnValue([]);
         mockApplyNoteUpdates.mockImplementation((md: string) => `${md} [modified]`);
     });
-
-    // ── NoteFile.load ──────────────────────────────────────────────────────────
 
     describe('NoteFile.load', () => {
         it('returns a NoteFile instance', async () => {
@@ -230,8 +226,6 @@ describe('NoteFile', () => {
         });
     });
 
-    // ── notes getter ───────────────────────────────────────────────────────────
-
     describe('notes', () => {
         it('is empty when the file has no notes', async () => {
             const { app } = makeApp();
@@ -251,8 +245,6 @@ describe('NoteFile', () => {
         });
     });
 
-    // ── context getter ─────────────────────────────────────────────────────────
-
     describe('context', () => {
         it('returns an object with the correct vaultName, fileName, and filePath', async () => {
             const { app } = makeApp('', 'vault-x');
@@ -270,8 +262,6 @@ describe('NoteFile', () => {
             expect(noteFile.context).toBe(noteFile.context);
         });
     });
-
-    // ── needsReload getter ─────────────────────────────────────────────────────
 
     describe('needsReload', () => {
         it('is false before any write', async () => {
@@ -309,11 +299,7 @@ describe('NoteFile', () => {
         });
     });
 
-    // ── updateNoets ────────────────────────────────────────────────────────────
-
     describe('updateNotes', () => {
-
-        // ── stale instance guard ───────────────────────────────────────────────
 
         describe('stale instance guard', () => {
             it('throws NoteFileStaleError when called on an already-written instance', async () => {
@@ -345,8 +331,6 @@ describe('NoteFile', () => {
                 expect(noteFile.needsReload).toBe(true);
             });
         });
-
-        // ── length mismatch guard ──────────────────────────────────────────────
 
         describe('length mismatch guard', () => {
             it('throws RangeError when the updates array is shorter than the note count', async () => {
@@ -385,8 +369,6 @@ describe('NoteFile', () => {
             });
         });
 
-        // ── no-op behaviour ────────────────────────────────────────────────────
-
         describe('no-op behaviour', () => {
             it('does not call applyNoteUpdates when every entry is an empty object', async () => {
                 const { noteFile } = await loadWithNotes(3);
@@ -413,8 +395,6 @@ describe('NoteFile', () => {
                 await expect(noteFile.updateNotes([{}, {}])).resolves.toBeUndefined();
             });
         });
-
-        // ── update application ─────────────────────────────────────────────────
 
         describe('update application', () => {
             it('calls applyNoteUpdates once per non-empty entry', async () => {
@@ -519,8 +499,6 @@ describe('NoteFile', () => {
         });
     });
 
-    // ── Component lifecycle ────────────────────────────────────────────────────
-
     describe('Component lifecycle during rendering', () => {
         it('instantiates exactly one Component per load', async () => {
             const { app } = makeApp();
@@ -560,8 +538,6 @@ describe('NoteFile', () => {
         });
     });
 
-    // ── NoteFileMismatchError ──────────────────────────────────────────────────
-
     describe('NoteFileMismatchError', () => {
         it('is an instance of Error', () => {
             expect(new NoteFileMismatchError(2, 3)).toBeInstanceOf(Error);
@@ -590,8 +566,6 @@ describe('NoteFile', () => {
             );
         });
     });
-
-    // ── NoteFileStaleError ─────────────────────────────────────────────────────
 
     describe('NoteFileStaleError', () => {
         it('is an instance of Error', () => {

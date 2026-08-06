@@ -41,15 +41,15 @@ export function parseNotesFromElement(documentEl: HTMLElement): Note[] {
 /**
  * Parses a single `.callout[data-callout="note"]` element into a {@link Note}.
  *
- * @param cardElement - The card callout DOM element to parse.
+ * @param cardEl - The card callout DOM element to parse.
  * @returns A parsed {@link Note}.
  *
  * @throws {MalformedNoteError} if the callout-content block is missing,
  *         if multiple metadata blocks are found, or if metadata contains an
  *         invalid or duplicate `id`.
  */
-function parseNoteFromElement(cardElement: HTMLElement): Note {
-    const contentEl = cardElement.querySelector<HTMLElement>('.callout-content');
+function parseNoteFromElement(cardEl: HTMLElement): Note {
+    const contentEl = cardEl.querySelector<HTMLElement>('.callout-content');
     if (!contentEl) {
         throw new MalformedNoteError(
             `Note is missing a callout-content block. `
@@ -114,7 +114,7 @@ function parseMetadata(metadataEl: HTMLElement): Pick<Note, 'id' | 'noteFields' 
             }
             id = parsed;
         } else if (key === 'tags') {
-            tags = extractTags(value);
+            tags = parseTags(value);
         } else {
             noteFields[key] = value;
         }
@@ -139,6 +139,6 @@ function parseStrictInt(value: string): number | null {
  * Parses a whitespace- and/or comma-separated string of tags into a
  * deduplicated set.
  */
-function extractTags(text: string): string[] {
+function parseTags(text: string): string[] {
     return text.split(/[\s,]+/).filter(Boolean);
 }

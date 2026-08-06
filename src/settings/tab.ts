@@ -6,6 +6,7 @@ import {
 import type ClozePlugin from "../main";
 import { FolderSuggest, StringSuggest } from "./suggest";
 
+/** Persisted plugin configuration, edited via {@link ClozeSettingTab}. */
 export interface PluginSettings {
     deckName: string;
     modelName: string;
@@ -20,6 +21,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     sourceField: "",
 };
 
+/** Settings tab shown in Obsidian's plugin settings pane. */
 export class ClozeSettingTab extends PluginSettingTab {
     plugin: ClozePlugin;
 
@@ -103,11 +105,11 @@ export class ClozeSettingTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName("Source field")
             .setDesc("Optional. The name of an Anki field to populate with a link back to the Obsidian file containing the card. Leave empty to disable.")
-            .addText(e => {
-                e.setPlaceholder("e.g. Source")
+            .addText(text => {
+                text.setPlaceholder("e.g. Source")
                     .setValue(this.plugin.settings.sourceField)
-                    .onChange(async n => {
-                        this.plugin.settings.sourceField = n.trim(),
+                    .onChange(async value => {
+                        this.plugin.settings.sourceField = value.trim(),
                             await this.plugin.saveSettings()
                     }
                 )
