@@ -16,11 +16,11 @@ export class StringSuggest extends AbstractInputSuggest<string> {
         app: App,
         inputEl: HTMLInputElement,
         getList: () => string[],
-        onSelect: (value: string) => void,
+        onSelectCb: (value: string) => void,
     ) {
         super(app, inputEl);
         this.getList = getList;
-        this.onSelectCb = onSelect;
+        this.onSelectCb = onSelectCb;
     }
 
     getSuggestions(inputStr: string): string[] {
@@ -52,10 +52,10 @@ export class FolderSuggest extends AbstractInputSuggest<string> {
     constructor(
         app: App,
         inputEl: HTMLInputElement,
-        onSelect: (value: string) => void,
+        onSelectCb: (value: string) => void,
     ) {
         super(app, inputEl);
-        this.onSelectCb = onSelect;
+        this.onSelectCb = onSelectCb;
     }
 
     getSuggestions(inputStr: string): string[] {
@@ -80,7 +80,7 @@ export class FolderSuggest extends AbstractInputSuggest<string> {
         this.close();
     }
 
-    // ── private ────────────────────────────────────────────────────────────
+    // ── Private ──────────────────────────────────────────────────────────────────
 
     private collectFolderPaths(): string[] {
         const paths: string[] = ["/"];

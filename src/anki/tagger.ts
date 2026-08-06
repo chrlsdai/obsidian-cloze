@@ -2,8 +2,7 @@ import { AnkiConnectClient } from "./connect-client";
 
 /**
  * Tag applied in Anki to notes that can no longer be found anywhere in the
- * Obsidian vault.  Uses a hyphenated name so it sorts cleanly in the Anki
- * browser without introducing a `::` namespace hierarchy.
+ * Obsidian vault.
  */
 export const FLOATING_TAG = "obsidian-floating";
 

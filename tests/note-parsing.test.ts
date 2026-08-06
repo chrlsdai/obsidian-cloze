@@ -67,11 +67,8 @@ function parseFrom(...noteEls: HTMLElement[]) {
     return parseNotesFromElement(root);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper sanity-checks
-// (If these fail the helper shapes diverge from the real selectors.)
-// ─────────────────────────────────────────────────────────────────────────────
-
+// If these fail, NOTE_SELECTOR/METADATA_SELECTOR no longer match the DOM
+// shapes the helpers above build, and the helpers need updating.
 describe('helper sanity-checks', () => {
     it('makeNoteEl() matches NOTE_SELECTOR', () => {
         const root = document.createElement('div');
@@ -85,10 +82,6 @@ describe('helper sanity-checks', () => {
         expect(root.querySelectorAll(METADATA_SELECTOR)).toHaveLength(1);
     });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Input validation
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('parseNotesFromElement › input validation', () => {
     it('throws TypeError for null', () =>
@@ -131,10 +124,6 @@ describe('parseNotesFromElement › input validation', () => {
         ).not.toThrow());
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// No notes found
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('parseNotesFromElement › no note callouts present', () => {
     it('returns [] for an empty element', () =>
         expect(parseNotesFromElement(document.createElement('div'))).toEqual([]));
@@ -159,10 +148,6 @@ describe('parseNotesFromElement › no note callouts present', () => {
         expect(parseNotesFromElement(makeNoteEl('<p>hi</p>'))).toEqual([]);
     });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Single note — no metadata
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('single note without metadata', () => {
     it('returns an array of length 1', () =>
@@ -194,10 +179,6 @@ describe('single note without metadata', () => {
     });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Multiple notes
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('multiple notes', () => {
     it('returns the correct number of Notes', () =>
         expect(parseFrom(makeNoteEl(), makeNoteEl(), makeNoteEl())).toHaveLength(3));
@@ -216,10 +197,6 @@ describe('multiple notes', () => {
         expect(a).not.toBe(b);
     });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Nested note callouts are excluded (top-level only)
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('nested note callouts are excluded (top-level only)', () => {
     // NOTE_SELECTOR must only match top-level `[!note]` callouts, mirroring
@@ -258,10 +235,6 @@ describe('nested note callouts are excluded (top-level only)', () => {
     });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Malformed: missing .callout-content
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('malformed note — missing .callout-content', () => {
     const makeNoContentNote = (): HTMLElement => {
         const el = document.createElement('div');
@@ -276,10 +249,6 @@ describe('malformed note — missing .callout-content', () => {
     it('error message mentions "callout-content"', () =>
         expect(() => parseFrom(makeNoContentNote())).toThrow(/callout-content/i));
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Malformed: multiple metadata blocks
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('malformed note — multiple metadata blocks', () => {
     const makeNoteWithNMeta = (n: number): HTMLElement => {
@@ -310,10 +279,6 @@ describe('malformed note — multiple metadata blocks', () => {
     it('error message includes the count found (2)', () =>
         expect(() => parseFrom(makeNoteWithNMeta(2))).toThrow(/2/));
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Metadata — id field
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('metadata › id field', () => {
     const parseId = (raw: string) =>
@@ -382,10 +347,6 @@ describe('metadata › id field', () => {
         expect(parseFrom(makeNoteWithMeta('tags: foo'))[0]!.id).toBeUndefined());
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Metadata — tags field
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('metadata › tags field', () => {
     const parseTags = (meta: string) =>
         parseFrom(makeNoteWithMeta(meta))[0]!.tags;
@@ -424,10 +385,6 @@ describe('metadata › tags field', () => {
         expect(n!.tags.includes('foo')).toBe(false);
     });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Metadata — cardFields
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('metadata › cardFields', () => {
     const parseFields = (meta: string) =>
@@ -470,10 +427,6 @@ describe('metadata › cardFields', () => {
     it('returns {} when all lines are unparseable', () =>
         expect(parseFields('lorem ipsum dolor')).toEqual({}));
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Note.textElement
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('Note.textElement', () => {
     // ── Shape and identity ─────────────────────────────────────────────────
@@ -532,10 +485,6 @@ describe('Note.textElement', () => {
         expect(n!.textElement.querySelector<HTMLElement>('#t')!.textContent).toBe('original');
     });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Integration
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('integration', () => {
     it('full note: id + tags + cardFields + body all parsed correctly', () => {

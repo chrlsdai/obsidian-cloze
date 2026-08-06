@@ -32,7 +32,7 @@ export function renderCardClozes(el: HTMLElement): void {
     el.querySelectorAll(NOTE_SELECTOR).forEach(renderClozeSpans);
 }
 
-function getTextNodes(root: Element): Text[] {
+function collectTextNodes(root: Element): Text[] {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
         acceptNode: ({ textContent }: Node) =>
             textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
@@ -61,7 +61,7 @@ function buildClozeFragment(text: string, matches: RegExpMatchArray[]): Document
 }
 
 function renderClozeSpans(el: Element): void {
-    for (const textNode of getTextNodes(el)) {
+    for (const textNode of collectTextNodes(el)) {
         const text = textNode.textContent ?? "";
         const matches = [...text.matchAll(CLOZE_REGEX)];
         if (matches.length) textNode.replaceWith(buildClozeFragment(text, matches));

@@ -25,6 +25,13 @@ export class AnkiNoteRejectedError extends Error {
     }
 }
 
+// ── Config resolution ────────────────────────────────────────────────────────
+
+/**
+ * Resolves and validates deck/model/field settings against what actually
+ * exists in Anki.
+ * @throws {AnkiConfigError} If the deck, model, or source field doesn't exist.
+ */
 export async function resolveConfig(
     deckName: string,
     modelName: string,
@@ -76,6 +83,8 @@ export async function resolveConfig(
     };
 }
 
+// ── Push orchestration ───────────────────────────────────────────────────────
+
 /**
  * The outcome of a {@link pushNotes} call. `updates` always reflects every
  * Anki ID that was successfully obtained, even when `errors` is non-empty —
@@ -88,13 +97,14 @@ export interface PushResult {
     errors: Error[];
 }
 
+/** Pushes `notes` to Anki, adding new ones and updating existing ones. */
 export async function pushNotes(
     notes: ReadonlyArray<Note>,
     config: AnkiConfig,
-    context: NoteContext,
+    ctx: NoteContext,
     client: AnkiConnectClient
 ): Promise<PushResult> {
-    const factory = new AnkiPayloadFactory(config, context);
+    const factory = new AnkiPayloadFactory(config, ctx);
     const updates: NoteUpdate[] = notes.map(() => ({}));
 
     const indexed = notes.map((note, index) => ({ note, index }));

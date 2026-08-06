@@ -31,10 +31,11 @@ interface MultiResult {
     error: string | null;
 }
 
+/** Thin wrapper over the AnkiConnect HTTP API. */
 export class AnkiConnectClient {
     constructor(private readonly url = ANKI_CONNECT_URL) { }
 
-    private async _ankiRequest<T>(action: string, params: object): Promise<T> {
+    private async ankiRequest<T>(action: string, params: object): Promise<T> {
         const response = await fetch(this.url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -50,20 +51,28 @@ export class AnkiConnectClient {
         return result as T;
     }
 
+    // ── Fetch metadata ───────────────────────────────────────────────────────────
+
+    /** Returns the names of all decks in Anki. */
     async fetchDeckNames(): Promise<string[]> {
-        return this._ankiRequest("deckNames", {});
+        return this.ankiRequest("deckNames", {});
     }
 
+    /** Returns the names of all note types (models) in Anki. */
     async fetchModelNames(): Promise<string[]> {
-        return this._ankiRequest("modelNames", {});
+        return this.ankiRequest("modelNames", {});
     }
 
+    /** Returns the field names defined on the `modelName` note type. */
     async fetchModelFields(modelName: string): Promise<string[]> {
-        return this._ankiRequest("modelFieldNames", { modelName });
+        return this.ankiRequest("modelFieldNames", { modelName });
     }
 
+    // ── Note CRUD ────────────────────────────────────────────────────────────────
+
+    /** Adds `notes` to Anki, returning the new ID for each (or `null` if rejected). */
     async addNotes(notes: AddNotesPayload): Promise<number[]> {
-        return this._ankiRequest("addNotes", notes);
+        return this.ankiRequest("addNotes", notes);
     }
 
     /**
@@ -71,14 +80,14 @@ export class AnkiConnectClient {
      * search syntax, e.g. `deck:"Default"`).
      */
     async findNotes(query: string): Promise<number[]> {
-        return this._ankiRequest<number[]>("findNotes", { query });
+        return this.ankiRequest<number[]>("findNotes", { query });
     }
 
     /**
      * Adds one or more space-separated `tags` to every note in `notes`.
      */
     async addTags(notes: number[], tags: string): Promise<void> {
-        await this._ankiRequest<null>("addTags", { notes, tags });
+        await this.ankiRequest<null>("addTags", { notes, tags });
     }
 
     /**
@@ -90,7 +99,7 @@ export class AnkiConnectClient {
             action: 'updateNote',
             params: { note },
         }));
-        const results = await this._ankiRequest<MultiResult[]>("multi", { actions });
+        const results = await this.ankiRequest<MultiResult[]>("multi", { actions });
 
         const failures = results.flatMap((r, i) =>
             r !== null && r.error !== null ? [{ id: payload.notes[i]!.id, error: r.error }] : []

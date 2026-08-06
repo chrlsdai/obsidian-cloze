@@ -1,6 +1,7 @@
 import { NoteContext } from "../note/schema";
 
-export function convertHTML(el: HTMLElement, ctx: NoteContext): string {
+/** Converts a rendered note body into Anki-ready HTML. */
+export function convertHtml(el: HTMLElement, ctx: NoteContext): string {
     const clone = el.cloneNode(true) as HTMLElement;
 
     transformClozes(clone);
@@ -9,6 +10,10 @@ export function convertHTML(el: HTMLElement, ctx: NoteContext): string {
     return clone.innerHTML;
 }
 
+/**
+ * Replaces every `span.cloze` in `el` with Anki's `{{cN::body}}` syntax,
+ * transforming inner clozes before outer ones so nested clozes stay valid.
+ */
 export function transformClozes(el: HTMLElement): void {
     const isValidId = (n: number): boolean => Number.isInteger(n) && n > 0;
 
@@ -50,6 +55,7 @@ export function transformClozes(el: HTMLElement): void {
     transformNode(el);
 }
 
+/** Rewrites Obsidian internal-link hrefs in `el` to `obsidian://open` URLs. */
 export function transformInternalLinks(
     el: HTMLElement,
     ctx: NoteContext
@@ -60,6 +66,7 @@ export function transformInternalLinks(
     };
 }
 
+/** Builds an `obsidian://open` URL for `fileName` in `vaultName`. */
 export function buildObsidianOpenUrl(
     vaultName: string,
     fileName: string,
@@ -70,6 +77,7 @@ export function buildObsidianOpenUrl(
 
 const ALLOWED_ATTRS = new Set(['href', 'src', 'alt', 'title', 'class', 'id']);
 
+/** Strips every attribute from `el` and its descendants except `ALLOWED_ATTRS`. */
 export function stripAttributes(el: HTMLElement): void {
     for (const node of el.querySelectorAll('*')) {
         for (const { name } of [...node.attributes]) {

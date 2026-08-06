@@ -6,16 +6,11 @@ import { NoteFile } from "./note/file";
 import { resolveConfig, pushNotes } from "./anki/pusher";
 import { AnkiConnectClient } from "./anki/connect-client";
 import { AnkiConfig } from "./anki/payload-factory";
-import { tagFloatingNotes, FLOATING_TAG } from "./anki/tagger";
+import { tagFloatingNotes as applyFloatingTag, FLOATING_TAG } from "./anki/tagger";
 
 interface PluginData {
     fileSyncTimes: Record<string, number>;
     settings: PluginSettings;
-}
-
-const DEFAULT_DATA: PluginData = {
-    fileSyncTimes: {},
-    settings: DEFAULT_SETTINGS,
 }
 
 export default class ClozePlugin extends Plugin {
@@ -26,6 +21,7 @@ export default class ClozePlugin extends Plugin {
     deckSuggestions: string[] = [];
     modelSuggestions: string[] = [];
 
+    /** Registers commands, the settings tab, and the cloze post-processor. */
     async onload() {
         console.clear();
         await this.loadSettings();
@@ -36,7 +32,7 @@ export default class ClozePlugin extends Plugin {
         this.addCommand({
             id: 'sync-vault',
             name: 'Sync Vault',
-            callback: async () => void this.runSync(statusBar)
+            callback: async () => void this.syncVault(statusBar)
         });
 
         this.addCommand({
@@ -48,7 +44,7 @@ export default class ClozePlugin extends Plugin {
         this.addCommand({
             id: "tag-floating-notes",
             name: "Tag Floating Notes",
-            callback: async () => void this.runTagFloatingNotes()
+            callback: async () => void this.tagFloatingNotes()
         });
 
         this.registerMarkdownPostProcessor((el: HTMLElement) => {
@@ -60,14 +56,16 @@ export default class ClozePlugin extends Plugin {
         this.loadAnkiSuggestions();
     }
 
-    // ── Settings ─────────────────────────────────────────────────────────────
+    // ── Settings ─────────────────────────────────────────────────────────────────
 
+    /** Loads plugin data from disk, falling back to defaults for anything missing. */
     async loadSettings() {
         const saved = (await this.loadData())
         this.fileSyncTimes = saved?.fileSyncTimes ?? {};
         this.settings = Object.assign({}, DEFAULT_SETTINGS, saved?.settings ?? {})
     }
 
+    /** Persists settings and file-sync timestamps to disk. */
     async saveSettings(): Promise<void> {
         const data: PluginData = {
             fileSyncTimes: this.fileSyncTimes,
@@ -76,7 +74,7 @@ export default class ClozePlugin extends Plugin {
         await this.saveData(data);
     }
 
-    // ── Anki suggestions ─────────────────────────────────────────────────────
+    // ── Anki suggestions ─────────────────────────────────────────────────────────
 
     private async loadAnkiSuggestions(): Promise<void> {
         try {
@@ -90,9 +88,10 @@ export default class ClozePlugin extends Plugin {
         } catch { }
     }
 
-    // ── Sync ──────────────────────────────────────────────────────────────
+    // ── Sync ─────────────────────────────────────────────────────────────────────
 
-    private async runSync(statusBar: HTMLElement): Promise<void> {
+    /** Resolves Anki config, then syncs every file that needs it. */
+    private async syncVault(statusBar: HTMLElement): Promise<void> {
         const files = this.collectFilesNeedingSync();
         if (files === null) {
             new Notice('Scan folder is set but does not point to a valid folder.');
@@ -128,6 +127,7 @@ export default class ClozePlugin extends Plugin {
         );
     }
 
+    /** Pushes each file to Anki in order, reporting progress on `statusBar`. */
     private async syncFiles(
         files: TFile[],
         config: AnkiConfig,
@@ -185,14 +185,14 @@ export default class ClozePlugin extends Plugin {
         }
     }
 
-    // ── Tag floating notes ────────────────────────────────────────────────────
+    // ── Tag floating notes ───────────────────────────────────────────────────────
 
     /**
      * Scans the entire vault (respecting scanFolder), collects every Anki note
      * ID that still exists in Obsidian, then tags any Anki note in the
      * configured deck whose ID is absent from that set.
      */
-    private async runTagFloatingNotes(): Promise<void> {
+    private async tagFloatingNotes(): Promise<void> {
         const allFiles = this.collectScopedFiles();
         if (allFiles === null) {
             new Notice('Scan folder is set but does not point to a valid folder.');
@@ -206,7 +206,7 @@ export default class ClozePlugin extends Plugin {
         const client = new AnkiConnectClient();
 
         try {
-            const count = await tagFloatingNotes(
+            const count = await applyFloatingTag(
                 this.settings.deckName,
                 vaultNoteIds,
                 client,
@@ -243,7 +243,7 @@ export default class ClozePlugin extends Plugin {
         return ids;
     }
 
-    // ── File collection ───────────────────────────────────────────────────────
+    // ── File collection ──────────────────────────────────────────────────────────
 
     /**
      * Returns every TFile within the configured scan scope:
@@ -256,7 +256,7 @@ export default class ClozePlugin extends Plugin {
         const folder = this.app.vault.getAbstractFileByPath(
             this.settings.scanFolder,
         );
-        return folder instanceof TFolder ? this.walkFolder(folder) : null;
+        return folder instanceof TFolder ? this.collectFilesInFolder(folder) : null;
     }
 
     /**
@@ -271,16 +271,18 @@ export default class ClozePlugin extends Plugin {
     }
 
     /** Recursively collects every TFile within a TFolder. */
-    private walkFolder(folder: TFolder): TFile[] {
+    private collectFilesInFolder(folder: TFolder): TFile[] {
         const files: TFile[] = [];
         for (const child of folder.children) {
             if (child instanceof TFile) files.push(child);
-            else if (child instanceof TFolder) files.push(...this.walkFolder(child));
+            else if (child instanceof TFolder) files.push(...this.collectFilesInFolder(child));
         }
         return files;
     }
 
-    // ── Data persistence ────────────────────────────────────────────────────
+    // ── Data persistence ─────────────────────────────────────────────────────────
+
+    /** Clears file-sync timestamps so the next sync re-processes every file. */
     private async resetCache(): Promise<void> {
         this.fileSyncTimes = {};
         await this.saveSettings();

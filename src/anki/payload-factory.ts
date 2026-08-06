@@ -1,6 +1,6 @@
 import { Note, NoteContext } from "../note/schema";
 import { AddNotesPayload, UpdateNotesPayload } from "./connect-client";
-import { convertHTML, buildObsidianOpenUrl } from "./html-processing";
+import { convertHtml, buildObsidianOpenUrl } from "./html-processing";
 
 
 export interface NoteModel {
@@ -14,14 +14,16 @@ export interface AnkiConfig {
     sourceField: string;
 }
 
+/** Builds AnkiConnect request payloads from parsed notes. */
 export class AnkiPayloadFactory {
     constructor(
         private readonly config: AnkiConfig,
-        private readonly context: NoteContext,
+        private readonly ctx: NoteContext,
     ) { }
 
-    // ── public API ───────────────────────────────────────────────
+    // ── Public API ───────────────────────────────────────────────────────────────
 
+    /** Builds the payload for adding brand-new notes to Anki. */
     buildAddNotesPayload(notes: Note[]): AddNotesPayload {
         return {
             notes: notes.map((note) => ({
@@ -33,6 +35,10 @@ export class AnkiPayloadFactory {
         };
     }
 
+    /**
+     * Builds the payload for updating existing Anki notes.
+     * @throws {Error} If any `note` is missing an `id`.
+     */
     buildUpdateNotesPayload(notes: Note[]): UpdateNotesPayload {
         return {
             notes: notes.map((note) => {
@@ -57,13 +63,13 @@ export class AnkiPayloadFactory {
         const { sourceField } = this.config;
 
         return {
-            [firstField]: convertHTML(note.textElement, this.context),
+            [firstField]: convertHtml(note.textElement, this.ctx),
             ...note.noteFields,
             ...(sourceField ? {
                 [sourceField]: `<a href="${buildObsidianOpenUrl(
-                    this.context.vaultName,
-                    this.context.filePath
-                )}">` + `${this.context.fileName}</a>`,
+                    this.ctx.vaultName,
+                    this.ctx.filePath
+                )}">` + `${this.ctx.fileName}</a>`,
             } : {}),
         };
     }
