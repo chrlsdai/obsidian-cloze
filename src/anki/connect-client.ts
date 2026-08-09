@@ -109,6 +109,17 @@ export class AnkiConnectClient {
             throw new AnkiNoteUpdateError(failures);
         }
     }
+
+    // ── Media ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Stores a local file in Anki's media collection under `filename`,
+     * overwriting any existing file of the same name.
+     * @param path Absolute filesystem path to the file (Anki reads it directly).
+     */
+    async storeMediaFile(filename: string, path: string): Promise<string> {
+        return this.ankiRequest("storeMediaFile", { filename, path, deleteExisting: true });
+    }
 }
 
 export interface AddNotesPayload {

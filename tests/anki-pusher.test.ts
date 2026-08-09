@@ -9,7 +9,9 @@ import {
     AnkiNoteRejectedError,
 } from '../src/anki/pusher';
 import { AnkiNoteUpdateError } from '../src/anki/connect-client';
+import { createEmptyMediaCache } from '../src/anki/media';
 import type { Note, NoteContext } from '../src/note/schema';
+import type { App } from 'obsidian';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -50,6 +52,8 @@ function makeNote(id?: number): Note {
 }
 
 const CONTEXT = {} as NoteContext;
+const APP = {} as App;
+const MEDIA_CACHE = createEmptyMediaCache();
 
 const VALID_CONFIG = {
     deckName: 'My Deck',
@@ -209,7 +213,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
         it('returns an empty updates array and no errors when the note list is empty', async () => {
             const client = makeClient();
 
-            const result = await pushNotes([], VALID_CONFIG, CONTEXT, client as any);
+            const result = await pushNotes([], VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(result).toEqual({ updates: [], errors: [] });
         });
@@ -217,7 +221,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
         it('makes no API calls when there are no notes', async () => {
             const client = makeClient();
 
-            await pushNotes([], VALID_CONFIG, CONTEXT, client as any);
+            await pushNotes([], VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(client.addNotes).not.toHaveBeenCalled();
             expect(client.updateNotes).not.toHaveBeenCalled();
@@ -234,7 +238,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(), makeNote()],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(updates[0]).toEqual({ id: '111' });
@@ -249,7 +253,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 addNotes: jest.fn().mockResolvedValue([1700000001234]),
             });
 
-            const { updates } = await pushNotes([makeNote()], VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes([makeNote()], VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(typeof updates[0]!.id).toBe('string');
             expect(updates[0]!.id).toBe('1700000001234');
@@ -264,7 +268,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(), makeNote(), makeNote()],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(client.addNotes).toHaveBeenCalledTimes(1);
@@ -282,7 +286,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(), makeNote(), makeNote()],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(errors).toHaveLength(1);
@@ -298,7 +302,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(), makeNote(), makeNote()],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(errors[0]!.message).toMatch(/2 of 3/);
@@ -316,7 +320,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(), makeNote(), makeNote()],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(updates[0]).toEqual({ id: '111' });
@@ -335,7 +339,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             // Position 0: existing (goes through updateNotes), position 1: new (rejected)
             const notes = [makeNote(101), makeNote()];
 
-            const { updates, errors } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates, errors } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(client.updateNotes).toHaveBeenCalledTimes(1);
             expect(updates[0]).toEqual({});
@@ -351,7 +355,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             });
             const notes = [makeNote(101), makeNote()];
 
-            const { errors } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { errors } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(errors).toHaveLength(2);
             expect(errors.some(e => e instanceof AnkiNoteRejectedError)).toBe(true);
@@ -367,7 +371,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(101), makeNote(102), makeNote(103)],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(client.updateNotes).toHaveBeenCalledTimes(1);
@@ -381,7 +385,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(101), makeNote(102)],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(updates[0]).toEqual({});
@@ -395,7 +399,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 [makeNote(101), makeNote(102)],
                 VALID_CONFIG,
                 CONTEXT,
-                client as any,
+                client as any, APP, MEDIA_CACHE,
             );
 
             expect(client.addNotes).not.toHaveBeenCalled();
@@ -410,7 +414,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             // Position 0: existing, 1: new, 2: existing
             const notes = [makeNote(101), makeNote(), makeNote(103)];
 
-            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(client.addNotes).toHaveBeenCalledTimes(1);
             expect(client.updateNotes).toHaveBeenCalledTimes(1);
@@ -425,7 +429,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             // Position 0: existing, positions 1–2: new
             const notes = [makeNote(1), makeNote(), makeNote()];
 
-            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(updates[0]).toEqual({});          // existing — no new ID
             expect(updates[1]).toEqual({ id: '555' });
@@ -438,7 +442,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             });
             const notes = [makeNote(101), makeNote(), makeNote(103)];
 
-            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(updates).toHaveLength(3);
         });
@@ -449,7 +453,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             const client = makeClient();
             const notes = Array.from({ length: 25 }, (_, i) => makeNote(i + 1));
 
-            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(client.updateNotes).toHaveBeenCalledTimes(1);
         });
@@ -458,7 +462,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             const client = makeClient();
             const notes = Array.from({ length: 25 }, (_, i) => makeNote(i + 1));
 
-            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            const { updates } = await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(updates).toHaveLength(25);
             updates.forEach(entry => expect(entry).toEqual({}));
@@ -471,7 +475,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
             });
             const notes = Array.from({ length: 25 }, () => makeNote());
 
-            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any);
+            await pushNotes(notes, VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
             expect(client.addNotes).toHaveBeenCalledTimes(1);
         });

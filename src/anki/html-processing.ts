@@ -1,9 +1,15 @@
 import { NoteContext } from "../note/schema";
+import { MediaResolutionContext, resolveNoteMedia } from "./media";
 
-/** Converts a rendered note body into Anki-ready HTML. */
-export function convertHtml(el: HTMLElement, ctx: NoteContext): string {
+/** Converts a rendered note body into Anki-ready HTML, uploading any image embeds to Anki. */
+export async function convertHtml(
+    el: HTMLElement,
+    ctx: NoteContext,
+    mediaCtx: MediaResolutionContext,
+): Promise<string> {
     const clone = el.cloneNode(true) as HTMLElement;
 
+    await resolveNoteMedia(clone, ctx, mediaCtx);
     transformClozes(clone);
     transformInternalLinks(clone, ctx);
     stripAttributes(clone);

@@ -1,6 +1,7 @@
 import { Note, NoteContext } from "../note/schema";
 import { AddNotesPayload, UpdateNotesPayload } from "./connect-client";
 import { convertHtml, buildObsidianOpenUrl } from "./html-processing";
+import { MediaResolutionContext } from "./media";
 
 
 export interface NoteModel {
@@ -19,19 +20,20 @@ export class AnkiPayloadFactory {
     constructor(
         private readonly config: AnkiConfig,
         private readonly ctx: NoteContext,
+        private readonly mediaCtx: MediaResolutionContext,
     ) { }
 
     // ── Public API ───────────────────────────────────────────────────────────────
 
     /** Builds the payload for adding brand-new notes to Anki. */
-    buildAddNotesPayload(notes: Note[]): AddNotesPayload {
+    async buildAddNotesPayload(notes: Note[]): Promise<AddNotesPayload> {
         return {
-            notes: notes.map((note) => ({
+            notes: await Promise.all(notes.map(async (note) => ({
                 deckName: this.config.deckName,
                 modelName: this.config.noteModel.name,
-                fields: this.buildFields(note),
+                fields: await this.buildFields(note),
                 tags: transformTags(note.tags),
-            })),
+            }))),
         };
     }
 
@@ -39,21 +41,21 @@ export class AnkiPayloadFactory {
      * Builds the payload for updating existing Anki notes.
      * @throws {Error} If any `note` is missing an `id`.
      */
-    buildUpdateNotesPayload(notes: Note[]): UpdateNotesPayload {
+    async buildUpdateNotesPayload(notes: Note[]): Promise<UpdateNotesPayload> {
         return {
-            notes: notes.map((note) => {
+            notes: await Promise.all(notes.map(async (note) => {
                 if (note.id === undefined) {
                     throw new Error('Cannot build an update payload: note has no id.');
                 }
                 return {
                     id: note.id,
-                    fields: this.buildFields(note),
+                    fields: await this.buildFields(note),
                 };
-            }),
+            })),
         };
     }
 
-    private buildFields(note: Note): Record<string, string> {
+    private async buildFields(note: Note): Promise<Record<string, string>> {
         const [firstField] = this.config.noteModel.fields;
 
         if (!firstField) {
@@ -63,7 +65,7 @@ export class AnkiPayloadFactory {
         const { sourceField } = this.config;
 
         return {
-            [firstField]: convertHtml(note.textElement, this.ctx),
+            [firstField]: await convertHtml(note.textElement, this.ctx, this.mediaCtx),
             ...note.noteFields,
             ...(sourceField ? {
                 [sourceField]: `<a href="${buildObsidianOpenUrl(

@@ -7,15 +7,18 @@ import { resolveConfig, pushNotes } from "./anki/pusher";
 import { AnkiConnectClient } from "./anki/connect-client";
 import { AnkiConfig } from "./anki/payload-factory";
 import { tagFloatingNotes as applyFloatingTag, FLOATING_TAG } from "./anki/tagger";
+import { createEmptyMediaCache, MediaCache } from "./anki/media";
 
 interface PluginData {
     fileSyncTimes: Record<string, number>;
+    mediaCache: MediaCache;
     settings: PluginSettings;
 }
 
 export default class ClozePlugin extends Plugin {
     settings: PluginSettings = DEFAULT_SETTINGS;
     private fileSyncTimes: Record<string, number> = {};
+    private mediaCache: MediaCache = createEmptyMediaCache();
 
     // Populated asynchronously by loadAnkiSuggestions(); read by ClozeSettingTab.
     deckSuggestions: string[] = [];
@@ -62,13 +65,15 @@ export default class ClozePlugin extends Plugin {
     async loadSettings() {
         const saved = (await this.loadData())
         this.fileSyncTimes = saved?.fileSyncTimes ?? {};
+        this.mediaCache = saved?.mediaCache ?? createEmptyMediaCache();
         this.settings = Object.assign({}, DEFAULT_SETTINGS, saved?.settings ?? {})
     }
 
-    /** Persists settings and file-sync timestamps to disk. */
+    /** Persists settings, file-sync timestamps, and the media cache to disk. */
     async saveSettings(): Promise<void> {
         const data: PluginData = {
             fileSyncTimes: this.fileSyncTimes,
+            mediaCache: this.mediaCache,
             settings: this.settings,
         }
         await this.saveData(data);
@@ -175,6 +180,8 @@ export default class ClozePlugin extends Plugin {
             config,
             noteFile.context,
             client,
+            this.app,
+            this.mediaCache,
         );
         await noteFile.updateNotes(updates);
 

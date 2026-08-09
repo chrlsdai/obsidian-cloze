@@ -281,14 +281,19 @@ describe('stripping non-standard HTML attributes before export to Anki', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('user exports a note through the full conversion pipeline', () => {
-    it('applies cloze conversion, link rewriting, and attribute stripping in one call', () => {
+    // None of the fixtures below contain an image embed, so convertHtml's
+    // media-resolution step never touches app/client/cache — this stub is
+    // never dereferenced.
+    const stubMediaCtx = {} as any;
+
+    it('applies cloze conversion, link rewriting, and attribute stripping in one call', async () => {
         const el = makeEl(
             '<p style="margin:0">' +
             'Capital: <span class="cloze">Paris</span>. ' +
             'Read <a class="internal-link" data-href="France">France</a>.' +
             '</p>'
         );
-        const result = convertHtml(el, ctx);
+        const result = await convertHtml(el, ctx, stubMediaCtx);
 
         expect(result).toContain('{{c1::Paris}}');
         expect(result).toContain('obsidian://open');
@@ -298,24 +303,24 @@ describe('user exports a note through the full conversion pipeline', () => {
         expect(result).not.toContain('data-href=');
     });
 
-    it('does not mutate the original DOM element so the Obsidian note view stays intact', () => {
+    it('does not mutate the original DOM element so the Obsidian note view stays intact', async () => {
         // LIKELY MISS: omitting cloneNode transforms the live DOM, breaking the editor view.
         const el = makeEl(
             '<p><span class="cloze" data-keep="yes">word</span></p>'
         );
         const snapshotBefore = el.innerHTML;
-        convertHtml(el, ctx);
+        await convertHtml(el, ctx, stubMediaCtx);
         expect(el.innerHTML).toBe(snapshotBefore);
     });
 
-    it('returns the inner HTML of the root container, not a new wrapping element', () => {
+    it('returns the inner HTML of the root container, not a new wrapping element', async () => {
         const el = makeEl('<p>Hello world</p>');
-        const result = convertHtml(el, ctx);
+        const result = await convertHtml(el, ctx, stubMediaCtx);
         expect(result).toBe('<p>Hello world</p>');
         expect(result.startsWith('<div')).toBe(false);
     });
 
-    it('handles a realistic flashcard with explicit cloze IDs, a hint, and an internal link', () => {
+    it('handles a realistic flashcard with explicit cloze IDs, a hint, and an internal link', async () => {
         const el = makeEl(
             '<p>' +
             '<span class="cloze" id="2" hint="European capital">Paris</span>' +
@@ -324,7 +329,7 @@ describe('user exports a note through the full conversion pipeline', () => {
             'More: <a class="internal-link" data-href="European Geography">link</a>.' +
             '</p>'
         );
-        const result = convertHtml(el, ctx);
+        const result = await convertHtml(el, ctx, stubMediaCtx);
 
         expect(result).toContain('{{c2::Paris::European capital}}');
         expect(result).toContain('{{c1::France}}');
@@ -333,31 +338,55 @@ describe('user exports a note through the full conversion pipeline', () => {
         expect(result).not.toContain('data-href=');
     });
 
-    it('correctly converts a note where some clozes have hints and others do not', () => {
+    it('correctly converts a note where some clozes have hints and others do not', async () => {
         const el = makeEl(
             '<p>' +
             '<span class="cloze" hint="a number">42</span>' +
             ' is the answer to <span class="cloze">everything</span>.' +
             '</p>'
         );
-        const result = convertHtml(el, ctx);
+        const result = await convertHtml(el, ctx, stubMediaCtx);
         expect(result).toContain('{{c1::42::a number}}');
         expect(result).toContain('{{c2::everything}}');
     });
 
-    it('passes a note with only standard HTML through without altering any content', () => {
+    it('passes a note with only standard HTML through without altering any content', async () => {
         const el = makeEl(
             '<p>A paragraph with <strong>bold</strong> and <em>italic</em> text.</p>'
         );
-        const result = convertHtml(el, ctx);
+        const result = await convertHtml(el, ctx, stubMediaCtx);
         expect(result).toBe(
             '<p>A paragraph with <strong>bold</strong> and <em>italic</em> text.</p>'
         );
     });
 
-    it('returns an empty string for an empty note without throwing', () => {
+    it('returns an empty string for an empty note without throwing', async () => {
         const el = makeEl('');
-        expect(() => convertHtml(el, ctx)).not.toThrow();
-        expect(convertHtml(el, ctx)).toBe('');
+        await expect(convertHtml(el, ctx, stubMediaCtx)).resolves.toBe('');
+    });
+
+    it('resolves an image embed to the uploaded Anki media filename', async () => {
+        const el = makeEl(
+            '<span class="internal-embed image-embed" src="diagram.png" alt="diagram.png">' +
+            '<img src="app://mock-resource/diagram.png" alt="diagram.png"></span>'
+        );
+        const file = { path: 'diagram.png', extension: 'png', stat: { mtime: 1 } };
+        const mediaCtx = {
+            app: {
+                metadataCache: { getFirstLinkpathDest: () => file },
+                vault: {
+                    readBinary: async () => Buffer.from('fake image bytes').buffer,
+                    adapter: { getFullPath: (p: string) => `/vault/${p}` },
+                },
+            },
+            client: { storeMediaFile: jest.fn().mockResolvedValue('uploaded') },
+            cache: { fileHashes: {}, uploads: {} },
+        } as any;
+
+        const result = await convertHtml(el, ctx, mediaCtx);
+
+        expect(mediaCtx.client.storeMediaFile).toHaveBeenCalledTimes(1);
+        expect(result).toMatch(/^<img src="[0-9a-f]{64}\.png" alt="diagram\.png">$/);
+        expect(result).not.toContain('internal-embed');
     });
 });

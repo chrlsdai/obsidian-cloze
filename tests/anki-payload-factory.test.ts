@@ -55,13 +55,16 @@ function makeConfig(overrides: Partial<AnkiConfig> = {}): AnkiConfig {
 /** Minimal context — the factory forwards it to convertHtml unchanged. */
 const stubContext = {} as NoteContext;
 
+/** convertHtml is mocked wholesale, so the media dependency bundle is never inspected. */
+const STUB_MEDIA_CTX = {} as any;
+
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
 describe('AnkiPayloadFactory', () => {
 
     beforeEach(() => {
         // Default: HTML converter returns something predictable.
-        mockConvertHTML.mockReturnValue('<p>converted content</p>');
+        mockConvertHTML.mockResolvedValue('<p>converted content</p>');
     });
 
     afterEach(() => {
@@ -72,53 +75,53 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the user syncs a note to Anki for the first time', () => {
 
-        it('places the card in the deck the user configured', () => {
+        it('places the card in the deck the user configured', async () => {
             const factory = new AnkiPayloadFactory(
                 makeConfig({ deckName: 'Japanese::N2' }),
-                stubContext,
+                stubContext, STUB_MEDIA_CTX,
             );
 
-            const payload = factory.buildAddNotesPayload([makeNote()]);
+            const payload = await factory.buildAddNotesPayload([makeNote()]);
 
             expect(payload.notes[0]!.deckName).toBe('Japanese::N2');
         });
 
-        it('uses the model name from the user\'s config', () => {
+        it('uses the model name from the user\'s config', async () => {
             const factory = new AnkiPayloadFactory(
                 makeConfig({ noteModel: { name: 'Cloze', fields: ['Text'] as readonly string[] } }),
-                stubContext,
+                stubContext, STUB_MEDIA_CTX,
             );
 
-            const payload = factory.buildAddNotesPayload([makeNote()]);
+            const payload = await factory.buildAddNotesPayload([makeNote()]);
 
             expect(payload.notes[0]!.modelName).toBe('Cloze');
         });
 
-        it('puts the HTML-converted note content into the first model field', () => {
-            mockConvertHTML.mockReturnValue('<p><b>What is JSX?</b></p>');
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('puts the HTML-converted note content into the first model field', async () => {
+            mockConvertHTML.mockResolvedValue('<p><b>What is JSX?</b></p>');
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([makeNote()]);
+            const payload = await factory.buildAddNotesPayload([makeNote()]);
 
             expect(payload.notes[0]!.fields['Front']).toBe('<p><b>What is JSX?</b></p>');
         });
 
-        it('passes the exact DOM element and context object to the HTML converter', () => {
+        it('passes the exact DOM element and context object to the HTML converter', async () => {
             const element = document.createElement('p');
             element.textContent = 'My question';
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            factory.buildAddNotesPayload([makeNote({ textElement: element })]);
+            await factory.buildAddNotesPayload([makeNote({ textElement: element })]);
 
             // The converter must receive the real element, not a clone or string.
-            expect(mockConvertHTML).toHaveBeenCalledWith(element, stubContext);
+            expect(mockConvertHTML).toHaveBeenCalledWith(element, stubContext, STUB_MEDIA_CTX);
         });
 
-        it('attaches the note\'s tags to the card in Anki format', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('attaches the note\'s tags to the card in Anki format', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
             const note = makeNote({ tags: ['#flashcard', '#language/japanese'] });
 
-            const payload = factory.buildAddNotesPayload([note]);
+            const payload = await factory.buildAddNotesPayload([note]);
 
             expect(payload.notes[0]!.tags).toEqual(['flashcard', 'language::japanese']);
         });
@@ -129,20 +132,20 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the user syncs multiple notes in one go', () => {
 
-        it('creates one Anki card entry for every note', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('creates one Anki card entry for every note', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([
+            const payload = await factory.buildAddNotesPayload([
                 makeNote(), makeNote(), makeNote(),
             ]);
 
             expect(payload.notes).toHaveLength(3);
         });
 
-        it('applies the same deck and model to every card', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('applies the same deck and model to every card', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([makeNote(), makeNote()]);
+            const payload = await factory.buildAddNotesPayload([makeNote(), makeNote()]);
 
             for (const card of payload.notes) {
                 expect(card.deckName).toBe('My Deck');
@@ -150,15 +153,15 @@ describe('AnkiPayloadFactory', () => {
             }
         });
 
-        it('converts each note\'s content independently', () => {
+        it('converts each note\'s content independently', async () => {
             // LIKELY MISS: a careless implementation might cache/re-use the
             // first convertHtml result for all notes.
             mockConvertHTML
-                .mockReturnValueOnce('<p>Question one</p>')
-                .mockReturnValueOnce('<p>Question two</p>');
+                .mockResolvedValueOnce('<p>Question one</p>')
+                .mockResolvedValueOnce('<p>Question two</p>');
 
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
-            const payload = factory.buildAddNotesPayload([makeNote(), makeNote()]);
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
+            const payload = await factory.buildAddNotesPayload([makeNote(), makeNote()]);
 
             expect(payload.notes[0]!.fields['Front']).toBe('<p>Question one</p>');
             expect(payload.notes[1]!.fields['Front']).toBe('<p>Question two</p>');
@@ -171,42 +174,42 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the user updates a note that was previously synced to Anki', () => {
 
-        it('produces an update payload that carries the original Anki card ID', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('produces an update payload that carries the original Anki card ID', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
             const note = makeNote({ id: 1_705_000_000_000 });
 
-            const payload = factory.buildUpdateNotesPayload([note]);
+            const payload = await factory.buildUpdateNotesPayload([note]);
 
             expect(payload.notes[0]!.id).toBe(1_705_000_000_000);
         });
 
-        it('includes the freshly converted HTML content so edits reach Anki', () => {
-            mockConvertHTML.mockReturnValue('<p>Updated explanation</p>');
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('includes the freshly converted HTML content so edits reach Anki', async () => {
+            mockConvertHTML.mockResolvedValue('<p>Updated explanation</p>');
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
             const note = makeNote({ id: 42 });
 
-            const payload = factory.buildUpdateNotesPayload([note]);
+            const payload = await factory.buildUpdateNotesPayload([note]);
 
             expect(payload.notes[0]!.fields['Front']).toBe('<p>Updated explanation</p>');
         });
 
-        it('also includes any extra noteFields so no field is lost on update', () => {
+        it('also includes any extra noteFields so no field is lost on update', async () => {
             const config = makeConfig({
                 noteModel: { name: 'Basic', fields: ['Front', 'Back'] as readonly string[] },
             });
-            const factory = new AnkiPayloadFactory(config, stubContext);
+            const factory = new AnkiPayloadFactory(config, stubContext, STUB_MEDIA_CTX);
             const note = makeNote({ id: 7, noteFields: { Back: 'The answer' } });
 
-            const payload = factory.buildUpdateNotesPayload([note]);
+            const payload = await factory.buildUpdateNotesPayload([note]);
 
             expect(payload.notes[0]!.fields['Back']).toBe('The answer');
         });
 
-        it('batches multiple notes into a single payload', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('batches multiple notes into a single payload', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
             const notes = [makeNote({ id: 1 }), makeNote({ id: 2 }), makeNote({ id: 3 })];
 
-            const payload = factory.buildUpdateNotesPayload(notes);
+            const payload = await factory.buildUpdateNotesPayload(notes);
 
             expect(payload.notes).toHaveLength(3);
             expect(payload.notes[0]!.id).toBe(1);
@@ -220,11 +223,11 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the user tries to update a note that has no Anki ID yet', () => {
 
-        it('throws a clear error instead of sending a malformed payload', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('throws a clear error instead of sending a malformed payload', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
             const unsyncedNote = makeNote({ id: undefined });
 
-            expect(() => factory.buildUpdateNotesPayload([unsyncedNote])).toThrow(
+            await expect(factory.buildUpdateNotesPayload([unsyncedNote])).rejects.toThrow(
                 'Cannot build an update payload: note has no id.',
             );
         });
@@ -235,18 +238,18 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the note model has more than one field', () => {
 
-        it('puts the converted HTML in the first field only', () => {
-            mockConvertHTML.mockReturnValue('<p>Front side</p>');
+        it('puts the converted HTML in the first field only', async () => {
+            mockConvertHTML.mockResolvedValue('<p>Front side</p>');
             const config = makeConfig({
                 noteModel: {
                     name: 'Basic + reversed',
                     fields: ['Front', 'Back', 'Source'] as readonly string[],
                 },
             });
-            const factory = new AnkiPayloadFactory(config, stubContext);
+            const factory = new AnkiPayloadFactory(config, stubContext, STUB_MEDIA_CTX);
             const note = makeNote({ noteFields: { Back: 'Back side', Source: 'p.42' } });
 
-            const payload = factory.buildAddNotesPayload([note]);
+            const payload = await factory.buildAddNotesPayload([note]);
 
             // LIKELY MISS: a naive implementation might put the HTML in every
             // field or only build the first field and discard noteFields.
@@ -255,16 +258,16 @@ describe('AnkiPayloadFactory', () => {
             expect(payload.notes[0]!.fields['Source']).toBe('p.42');
         });
 
-        it('only calls convertHtml once per note, not once per field', () => {
+        it('only calls convertHtml once per note, not once per field', async () => {
             const config = makeConfig({
                 noteModel: {
                     name: 'Big model',
                     fields: ['F1', 'F2', 'F3'] as readonly string[],
                 },
             });
-            const factory = new AnkiPayloadFactory(config, stubContext);
+            const factory = new AnkiPayloadFactory(config, stubContext, STUB_MEDIA_CTX);
 
-            factory.buildAddNotesPayload([makeNote({ noteFields: { F2: 'x', F3: 'y' } })]);
+            await factory.buildAddNotesPayload([makeNote({ noteFields: { F2: 'x', F3: 'y' } })]);
 
             expect(mockConvertHTML).toHaveBeenCalledTimes(1);
         });
@@ -275,41 +278,41 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the user has different tag styles in their vault', () => {
 
-        it('strips the leading # from a simple tag', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('strips the leading # from a simple tag', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([makeNote({ tags: ['#review'] })]);
+            const payload = await factory.buildAddNotesPayload([makeNote({ tags: ['#review'] })]);
 
             expect(payload.notes[0]!.tags).toContain('review');
             expect(payload.notes[0]!.tags).not.toContain('#review');
         });
 
-        it('converts a single-level nested Obsidian tag to double-colon notation', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('converts a single-level nested Obsidian tag to double-colon notation', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([
+            const payload = await factory.buildAddNotesPayload([
                 makeNote({ tags: ['#language/japanese'] }),
             ]);
 
             expect(payload.notes[0]!.tags).toContain('language::japanese');
         });
 
-        it('converts deeply nested tags at every level of the hierarchy', () => {
+        it('converts deeply nested tags at every level of the hierarchy', async () => {
             // LIKELY MISS: a regex that only replaces the first `/` would leave
             // intermediate slashes unconverted.
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([
+            const payload = await factory.buildAddNotesPayload([
                 makeNote({ tags: ['#grammar/n2/verb/godan'] }),
             ]);
 
             expect(payload.notes[0]!.tags).toContain('grammar::n2::verb::godan');
         });
 
-        it('handles a realistic mix of simple and nested tags on the same note', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('handles a realistic mix of simple and nested tags on the same note', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([
+            const payload = await factory.buildAddNotesPayload([
                 makeNote({ tags: ['#review', '#language/japanese', '#grammar/n2/verb'] }),
             ]);
 
@@ -320,10 +323,10 @@ describe('AnkiPayloadFactory', () => {
             ]);
         });
 
-        it('produces an empty tags array when the note carries no tags', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('produces an empty tags array when the note carries no tags', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([makeNote({ tags: [] })]);
+            const payload = await factory.buildAddNotesPayload([makeNote({ tags: [] })]);
 
             expect(payload.notes[0]!.tags).toEqual([]);
         });
@@ -334,10 +337,10 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the user triggers sync but there are no matching notes', () => {
 
-        it('returns a payload with an empty notes array rather than failing', () => {
-            const factory = new AnkiPayloadFactory(makeConfig(), stubContext);
+        it('returns a payload with an empty notes array rather than failing', async () => {
+            const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
 
-            const payload = factory.buildAddNotesPayload([]);
+            const payload = await factory.buildAddNotesPayload([]);
 
             expect(payload.notes).toEqual([]);
             expect(mockConvertHTML).not.toHaveBeenCalled();
@@ -349,24 +352,24 @@ describe('AnkiPayloadFactory', () => {
 
     describe('when the plugin configuration has a note model with no fields defined', () => {
 
-        it('throws an informative error when trying to add notes', () => {
+        it('throws an informative error when trying to add notes', async () => {
             const config = makeConfig({
                 noteModel: { name: 'Broken Model', fields: [] as readonly string[] },
             });
-            const factory = new AnkiPayloadFactory(config, stubContext);
+            const factory = new AnkiPayloadFactory(config, stubContext, STUB_MEDIA_CTX);
 
-            expect(() => factory.buildAddNotesPayload([makeNote()])).toThrow(
+            await expect(factory.buildAddNotesPayload([makeNote()])).rejects.toThrow(
                 'NoteModel must define at least one field.',
             );
         });
 
-        it('throws the same error when trying to update a note', () => {
+        it('throws the same error when trying to update a note', async () => {
             const config = makeConfig({
                 noteModel: { name: 'Broken Model', fields: [] as readonly string[] },
             });
-            const factory = new AnkiPayloadFactory(config, stubContext);
+            const factory = new AnkiPayloadFactory(config, stubContext, STUB_MEDIA_CTX);
 
-            expect(() => factory.buildUpdateNotesPayload([makeNote({ id: 1 })])).toThrow(
+            await expect(factory.buildUpdateNotesPayload([makeNote({ id: 1 })])).rejects.toThrow(
                 'NoteModel must define at least one field.',
             );
         });

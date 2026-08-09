@@ -20,7 +20,7 @@ ANKI_PROD_PROFILE   := Medical Learning
 ANKI_DATA_DIR       := $(HOME)/Library/Application Support/Anki2
 
 # --- Files to deploy ---
-PLUGIN_FILES        := main.js manifest.json data.json styles.css
+PLUGIN_FILES        := main.js manifest.json styles.css
 
 # --- Backup settings ---
 BACKUP_ROOT         := $(HOME)/Documents/$(PLUGIN_NAME)-backups

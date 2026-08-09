@@ -126,6 +126,7 @@ export class Vault {
     mkdir:  jest.fn().mockResolvedValue(undefined),
     list:   jest.fn().mockResolvedValue({ files: [], folders: [] }),
     getBasePath: jest.fn().mockReturnValue('/'),
+    getFullPath: jest.fn((path: string) => `/mock-vault/${path}`),
   };
 
   getName        = jest.fn().mockReturnValue('test-vault');
@@ -416,6 +417,13 @@ function minimalMarkdownToHtml(markdown: string): string {
       .replace(/\*(.+?)\*/g,          '<em>$1</em>')
       .replace(/~~(.+?)~~/g,          '<del>$1</del>')
       .replace(/==(.+?)==/g,          '<mark>$1</mark>')
+      // Image/media embeds — must run before the internal-link pattern below,
+      // otherwise the leading "!" is left stranded in front of the link markup.
+      .replace(/!\[\[(.+?)\]\]/g,     (_m, target) => {
+        const [link] = target.split('|');
+        return `<span class="internal-embed image-embed" src="${link}" alt="${link}">` +
+          `<img src="app://mock-resource/${link}" alt="${link}"></span>`;
+      })
       .replace(/\[\[(.+?)\]\]/g,      '<a class="internal-link" href="$1">$1</a>')
       .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
 

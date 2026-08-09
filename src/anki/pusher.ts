@@ -1,5 +1,7 @@
+import type { App } from "obsidian";
 import { Note, NoteContext, NoteUpdate } from "../note/schema";
 import { AnkiConnectClient } from "./connect-client";
+import { MediaCache } from "./media";
 import { AnkiConfig, AnkiPayloadFactory } from "./payload-factory";
 
 interface IndexedNote {
@@ -102,9 +104,11 @@ export async function pushNotes(
     notes: ReadonlyArray<Note>,
     config: AnkiConfig,
     ctx: NoteContext,
-    client: AnkiConnectClient
+    client: AnkiConnectClient,
+    app: App,
+    mediaCache: MediaCache,
 ): Promise<PushResult> {
-    const factory = new AnkiPayloadFactory(config, ctx);
+    const factory = new AnkiPayloadFactory(config, ctx, { app, client, cache: mediaCache });
     const updates: NoteUpdate[] = notes.map(() => ({}));
 
     const indexed = notes.map((note, index) => ({ note, index }));
@@ -138,7 +142,7 @@ async function addNotes(
 ): Promise<void> {
     if (!items.length) return;
 
-    const payload = factory.buildAddNotesPayload(items.map(({ note }) => note));
+    const payload = await factory.buildAddNotesPayload(items.map(({ note }) => note));
     const newIds = await client.addNotes(payload);
 
     // Anki adds each note independently, so IDs for the notes that succeeded
@@ -162,6 +166,6 @@ async function updateNotes(
 ): Promise<void> {
     if (!items.length) return;
 
-    const payload = factory.buildUpdateNotesPayload(items.map(({ note }) => note));
+    const payload = await factory.buildUpdateNotesPayload(items.map(({ note }) => note));
     await client.updateNotes(payload);
 }
