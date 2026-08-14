@@ -44,7 +44,7 @@ function collectTextNodes(root: Element): Text[] {
 }
 
 function buildClozeFragment(text: string, matches: RegExpMatchArray[]): DocumentFragment {
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     let cursor = 0;
 
     for (const match of matches) {

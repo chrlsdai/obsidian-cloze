@@ -1,3 +1,5 @@
+import { requestUrl } from "obsidian";
+
 const ANKI_PORT: number = 8765
 const ANKI_CONNECT_URL = `http://127.0.0.1:${ANKI_PORT}`;
 const ANKI_CONNECT_VERSION = 6;
@@ -31,14 +33,20 @@ interface MultiResult {
     error: string | null;
 }
 
+interface AnkiConnectResponse<T> {
+    result: T;
+    error: string | null;
+}
+
 /** Thin wrapper over the AnkiConnect HTTP API. */
 export class AnkiConnectClient {
     constructor(private readonly url = ANKI_CONNECT_URL) { }
 
     private async ankiRequest<T>(action: string, params: object): Promise<T> {
-        const response = await fetch(this.url, {
+        const response = await requestUrl({
+            url: this.url,
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            contentType: "application/json",
             body: JSON.stringify({
                 action,
                 version: ANKI_CONNECT_VERSION,
@@ -46,9 +54,9 @@ export class AnkiConnectClient {
             }),
         });
 
-        const { result, error } = await response.json();
+        const { result, error } = response.json as AnkiConnectResponse<T>;
         if (error) throw new AnkiConnectError(error);
-        return result as T;
+        return result;
     }
 
     // ── Fetch metadata ───────────────────────────────────────────────────────────

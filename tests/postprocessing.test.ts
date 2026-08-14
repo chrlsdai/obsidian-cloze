@@ -23,7 +23,7 @@ describe('CLOZE_REGEX', () => {
     it('matches a simple cloze', () => {
         const matches = [...'The capital of France is {Paris}.'.matchAll(CLOZE_REGEX)];
         expect(matches).toHaveLength(1);
-        expect(matches[0]![1]).toBe('Paris');
+        expect(matches[0][1]).toBe('Paris');
     });
 
     it('matches a cloze whose answer contains a single colon', () => {
@@ -31,7 +31,7 @@ describe('CLOZE_REGEX', () => {
         // the literal "{...}" text unrendered.
         const matches = [...'{The ratio is 3:4}'.matchAll(CLOZE_REGEX)];
         expect(matches).toHaveLength(1);
-        expect(matches[0]![1]).toBe('The ratio is 3:4');
+        expect(matches[0][1]).toBe('The ratio is 3:4');
     });
 
     it('matches multiple clozes in the same string', () => {

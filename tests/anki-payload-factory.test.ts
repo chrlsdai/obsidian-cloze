@@ -83,7 +83,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildAddNotesPayload([makeNote()]);
 
-            expect(payload.notes[0]!.deckName).toBe('Japanese::N2');
+            expect(payload.notes[0].deckName).toBe('Japanese::N2');
         });
 
         it('uses the model name from the user\'s config', async () => {
@@ -94,7 +94,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildAddNotesPayload([makeNote()]);
 
-            expect(payload.notes[0]!.modelName).toBe('Cloze');
+            expect(payload.notes[0].modelName).toBe('Cloze');
         });
 
         it('puts the HTML-converted note content into the first model field', async () => {
@@ -103,7 +103,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildAddNotesPayload([makeNote()]);
 
-            expect(payload.notes[0]!.fields['Front']).toBe('<p><b>What is JSX?</b></p>');
+            expect(payload.notes[0].fields['Front']).toBe('<p><b>What is JSX?</b></p>');
         });
 
         it('passes the exact DOM element and context object to the HTML converter', async () => {
@@ -123,7 +123,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildAddNotesPayload([note]);
 
-            expect(payload.notes[0]!.tags).toEqual(['flashcard', 'language::japanese']);
+            expect(payload.notes[0].tags).toEqual(['flashcard', 'language::japanese']);
         });
 
     });
@@ -163,8 +163,8 @@ describe('AnkiPayloadFactory', () => {
             const factory = new AnkiPayloadFactory(makeConfig(), stubContext, STUB_MEDIA_CTX);
             const payload = await factory.buildAddNotesPayload([makeNote(), makeNote()]);
 
-            expect(payload.notes[0]!.fields['Front']).toBe('<p>Question one</p>');
-            expect(payload.notes[1]!.fields['Front']).toBe('<p>Question two</p>');
+            expect(payload.notes[0].fields['Front']).toBe('<p>Question one</p>');
+            expect(payload.notes[1].fields['Front']).toBe('<p>Question two</p>');
             expect(mockConvertHTML).toHaveBeenCalledTimes(2);
         });
 
@@ -180,7 +180,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildUpdateNotesPayload([note]);
 
-            expect(payload.notes[0]!.id).toBe(1_705_000_000_000);
+            expect(payload.notes[0].id).toBe(1_705_000_000_000);
         });
 
         it('includes the freshly converted HTML content so edits reach Anki', async () => {
@@ -190,7 +190,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildUpdateNotesPayload([note]);
 
-            expect(payload.notes[0]!.fields['Front']).toBe('<p>Updated explanation</p>');
+            expect(payload.notes[0].fields['Front']).toBe('<p>Updated explanation</p>');
         });
 
         it('also includes any extra noteFields so no field is lost on update', async () => {
@@ -202,7 +202,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildUpdateNotesPayload([note]);
 
-            expect(payload.notes[0]!.fields['Back']).toBe('The answer');
+            expect(payload.notes[0].fields['Back']).toBe('The answer');
         });
 
         it('batches multiple notes into a single payload', async () => {
@@ -212,9 +212,9 @@ describe('AnkiPayloadFactory', () => {
             const payload = await factory.buildUpdateNotesPayload(notes);
 
             expect(payload.notes).toHaveLength(3);
-            expect(payload.notes[0]!.id).toBe(1);
-            expect(payload.notes[1]!.id).toBe(2);
-            expect(payload.notes[2]!.id).toBe(3);
+            expect(payload.notes[0].id).toBe(1);
+            expect(payload.notes[1].id).toBe(2);
+            expect(payload.notes[2].id).toBe(3);
         });
 
     });
@@ -253,9 +253,9 @@ describe('AnkiPayloadFactory', () => {
 
             // LIKELY MISS: a naive implementation might put the HTML in every
             // field or only build the first field and discard noteFields.
-            expect(payload.notes[0]!.fields['Front']).toBe('<p>Front side</p>');
-            expect(payload.notes[0]!.fields['Back']).toBe('Back side');
-            expect(payload.notes[0]!.fields['Source']).toBe('p.42');
+            expect(payload.notes[0].fields['Front']).toBe('<p>Front side</p>');
+            expect(payload.notes[0].fields['Back']).toBe('Back side');
+            expect(payload.notes[0].fields['Source']).toBe('p.42');
         });
 
         it('only calls convertHtml once per note, not once per field', async () => {
@@ -283,8 +283,8 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildAddNotesPayload([makeNote({ tags: ['#review'] })]);
 
-            expect(payload.notes[0]!.tags).toContain('review');
-            expect(payload.notes[0]!.tags).not.toContain('#review');
+            expect(payload.notes[0].tags).toContain('review');
+            expect(payload.notes[0].tags).not.toContain('#review');
         });
 
         it('converts a single-level nested Obsidian tag to double-colon notation', async () => {
@@ -294,7 +294,7 @@ describe('AnkiPayloadFactory', () => {
                 makeNote({ tags: ['#language/japanese'] }),
             ]);
 
-            expect(payload.notes[0]!.tags).toContain('language::japanese');
+            expect(payload.notes[0].tags).toContain('language::japanese');
         });
 
         it('converts deeply nested tags at every level of the hierarchy', async () => {
@@ -306,7 +306,7 @@ describe('AnkiPayloadFactory', () => {
                 makeNote({ tags: ['#grammar/n2/verb/godan'] }),
             ]);
 
-            expect(payload.notes[0]!.tags).toContain('grammar::n2::verb::godan');
+            expect(payload.notes[0].tags).toContain('grammar::n2::verb::godan');
         });
 
         it('handles a realistic mix of simple and nested tags on the same note', async () => {
@@ -316,7 +316,7 @@ describe('AnkiPayloadFactory', () => {
                 makeNote({ tags: ['#review', '#language/japanese', '#grammar/n2/verb'] }),
             ]);
 
-            expect(payload.notes[0]!.tags).toEqual([
+            expect(payload.notes[0].tags).toEqual([
                 'review',
                 'language::japanese',
                 'grammar::n2::verb',
@@ -328,7 +328,7 @@ describe('AnkiPayloadFactory', () => {
 
             const payload = await factory.buildAddNotesPayload([makeNote({ tags: [] })]);
 
-            expect(payload.notes[0]!.tags).toEqual([]);
+            expect(payload.notes[0].tags).toEqual([]);
         });
 
     });

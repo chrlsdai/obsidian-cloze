@@ -51,7 +51,7 @@ export async function resolveNoteMedia(
 
         const filename = await resolveUpload(file, app, client, cache);
 
-        const img = document.createElement("img");
+        const img = createEl("img");
         img.setAttribute("src", filename);
         const alt = embed.getAttribute("alt");
         if (alt) img.setAttribute("alt", alt);

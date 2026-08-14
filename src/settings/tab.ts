@@ -33,7 +33,7 @@ export class ClozeSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.createEl("h2", { text: "Cloze Plugin Settings" });
+        new Setting(containerEl).setName("Anki sync").setHeading();
 
         new Setting(containerEl)
             .setName("Deck name")
@@ -50,9 +50,9 @@ export class ClozeSettingTab extends PluginSettingTab {
                     this.app,
                     text.inputEl,
                     () => this.plugin.deckSuggestions,
-                    async (selected) => {
+                    (selected) => {
                         this.plugin.settings.deckName = selected;
-                        await this.plugin.saveSettings();
+                        void this.plugin.saveSettings();
                     },
                 );
             });
@@ -72,9 +72,9 @@ export class ClozeSettingTab extends PluginSettingTab {
                     this.app,
                     text.inputEl,
                     () => this.plugin.modelSuggestions,
-                    async (selected) => {
+                    (selected) => {
                         this.plugin.settings.modelName = selected;
-                        await this.plugin.saveSettings();
+                        void this.plugin.saveSettings();
                     },
                 );
             });
@@ -95,9 +95,9 @@ export class ClozeSettingTab extends PluginSettingTab {
                 new FolderSuggest(
                     this.app,
                     text.inputEl,
-                    async (selected) => {
+                    (selected) => {
                         this.plugin.settings.scanFolder = selected;
-                        await this.plugin.saveSettings();
+                        void this.plugin.saveSettings();
                     },
                 );
             });
@@ -106,11 +106,11 @@ export class ClozeSettingTab extends PluginSettingTab {
             .setName("Source field")
             .setDesc("Optional. The name of an Anki field to populate with a link back to the Obsidian file containing the card. Leave empty to disable.")
             .addText(text => {
-                text.setPlaceholder("e.g. Source")
+                text.setPlaceholder("E.g. Source")
                     .setValue(this.plugin.settings.sourceField)
                     .onChange(async value => {
-                        this.plugin.settings.sourceField = value.trim(),
-                            await this.plugin.saveSettings()
+                        this.plugin.settings.sourceField = value.trim();
+                        await this.plugin.saveSettings();
                     }
                 )
             })

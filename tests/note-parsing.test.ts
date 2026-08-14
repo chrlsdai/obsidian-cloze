@@ -157,25 +157,25 @@ describe('single note without metadata', () => {
         expect(Array.isArray(parseFrom(makeNoteEl()))).toBe(true));
 
     it('Note.id is undefined', () =>
-        expect(parseFrom(makeNoteEl())[0]!.id).toBeUndefined());
+        expect(parseFrom(makeNoteEl())[0].id).toBeUndefined());
 
     it('Note.cardFields is {}', () =>
-        expect(parseFrom(makeNoteEl())[0]!.noteFields).toEqual({}));
+        expect(parseFrom(makeNoteEl())[0].noteFields).toEqual({}));
 
     it('Note.tags is an empty array', () => {
-        const { tags } = parseFrom(makeNoteEl())[0]!;
+        const { tags } = parseFrom(makeNoteEl())[0];
         expect(tags).toBeInstanceOf(Array<string>);
         expect(tags.length).toBe(0);
     });
 
     it('Note.textElement is an HTMLElement', () =>
         expect(
-            parseFrom(makeNoteEl('<p>hi</p>'))[0]!.textElement
+            parseFrom(makeNoteEl('<p>hi</p>'))[0].textElement
         ).toBeInstanceOf(HTMLElement));
 
     it('Note.textElement contains the body HTML', () => {
         const [n] = parseFrom(makeNoteEl('<p id="body">content</p>'));
-        expect(n!.textElement.querySelector('#body')).not.toBeNull();
+        expect(n.textElement.querySelector('#body')).not.toBeNull();
     });
 });
 
@@ -231,7 +231,7 @@ describe('nested note callouts are excluded (top-level only)', () => {
 
         const [n] = parseFrom(outer);
 
-        expect(n!.textElement.querySelector('#inner-body')).not.toBeNull();
+        expect(n.textElement.querySelector('#inner-body')).not.toBeNull();
     });
 });
 
@@ -282,7 +282,7 @@ describe('malformed note — multiple metadata blocks', () => {
 
 describe('metadata › id field', () => {
     const parseId = (raw: string) =>
-        parseFrom(makeNoteWithMeta(`id: ${raw}`))[0]!.id;
+        parseFrom(makeNoteWithMeta(`id: ${raw}`))[0].id;
 
     const throwsForMeta = (meta: string) =>
         expect(() => parseFrom(makeNoteWithMeta(meta))).toThrow(InvalidMetadataError);
@@ -344,12 +344,12 @@ describe('metadata › id field', () => {
     // ── Absent field ───────────────────────────────────────────────────────────
 
     it('id is undefined when the id field is absent', () =>
-        expect(parseFrom(makeNoteWithMeta('tags: foo'))[0]!.id).toBeUndefined());
+        expect(parseFrom(makeNoteWithMeta('tags: foo'))[0].id).toBeUndefined());
 });
 
 describe('metadata › tags field', () => {
     const parseTags = (meta: string) =>
-        parseFrom(makeNoteWithMeta(meta))[0]!.tags;
+        parseFrom(makeNoteWithMeta(meta))[0].tags;
 
     it('single tag', () =>
         expect(parseTags('tags: foo')).toEqual(['foo']));
@@ -381,14 +381,14 @@ describe('metadata › tags field', () => {
 
     it('second tags line silently replaces the first (first value is lost)', () => {
         const [n] = parseFrom(makeNoteWithMeta('tags: foo\ntags: bar'));
-        expect(n!.tags).toEqual(['bar']);
-        expect(n!.tags.includes('foo')).toBe(false);
+        expect(n.tags).toEqual(['bar']);
+        expect(n.tags.includes('foo')).toBe(false);
     });
 });
 
 describe('metadata › cardFields', () => {
     const parseFields = (meta: string) =>
-        parseFrom(makeNoteWithMeta(meta))[0]!.noteFields;
+        parseFrom(makeNoteWithMeta(meta))[0].noteFields;
 
     it('single key-value pair', () =>
         expect(parseFields('front: hello')).toEqual({ front: 'hello' }));
@@ -432,12 +432,12 @@ describe('Note.textElement', () => {
     // ── Shape and identity ─────────────────────────────────────────────────
 
     it('is an HTMLElement', () =>
-        expect(parseFrom(makeNoteEl('<p>x</p>'))[0]!.textElement)
+        expect(parseFrom(makeNoteEl('<p>x</p>'))[0].textElement)
             .toBeInstanceOf(HTMLElement));
 
     it('is the cloned .callout-content element — carries that class', () => {
         const [n] = parseFrom(makeNoteEl('<p>x</p>'));
-        expect(n!.textElement.classList.contains('callout-content')).toBe(true);
+        expect(n.textElement.classList.contains('callout-content')).toBe(true);
     });
 
     it('is a distinct node — not the same reference as the original .callout-content', () => {
@@ -447,7 +447,7 @@ describe('Note.textElement', () => {
 
         const [n] = parseNotesFromElement(root);
 
-        expect(n!.textElement).not.toBe(noteEl.querySelector('.callout-content'));
+        expect(n.textElement).not.toBe(noteEl.querySelector('.callout-content'));
     });
 
     // ── Deep-clone guarantee ───────────────────────────────────────────────
@@ -469,7 +469,7 @@ describe('Note.textElement', () => {
         root.appendChild(noteEl);
 
         const [n] = parseNotesFromElement(root);
-        n!.textElement.querySelector<HTMLElement>('#t')!.textContent = 'mutated';
+        n.textElement.querySelector<HTMLElement>('#t')!.textContent = 'mutated';
 
         expect(noteEl.querySelector<HTMLElement>('#t')!.textContent).toBe('original');
     });
@@ -482,7 +482,7 @@ describe('Note.textElement', () => {
         const [n] = parseNotesFromElement(root);
         noteEl.querySelector<HTMLElement>('#t')!.textContent = 'mutated';
 
-        expect(n!.textElement.querySelector<HTMLElement>('#t')!.textContent).toBe('original');
+        expect(n.textElement.querySelector<HTMLElement>('#t')!.textContent).toBe('original');
     });
 });
 
@@ -495,11 +495,11 @@ describe('integration', () => {
             ),
         );
 
-        expect(n!.id).toBe(99);
-        expect(n!.tags).toEqual(['math', 'science']);
-        expect(n!.noteFields).toEqual({ front: '2 + 2?', back: '4' });
-        expect(n!.textElement.querySelector('.body')).not.toBeNull();
-        expect(n!.textElement.querySelector(METADATA_SELECTOR)).toBeNull();
+        expect(n.id).toBe(99);
+        expect(n.tags).toEqual(['math', 'science']);
+        expect(n.noteFields).toEqual({ front: '2 + 2?', back: '4' });
+        expect(n.textElement.querySelector('.body')).not.toBeNull();
+        expect(n.textElement.querySelector(METADATA_SELECTOR)).toBeNull();
     });
 
     it('two notes are parsed independently', () => {
@@ -508,10 +508,10 @@ describe('integration', () => {
             makeNoteWithMeta('id: 2\nfront: Question B'),
         );
 
-        expect(a!.id).toBe(1);
-        expect(a!.noteFields.front).toBe('Question A');
-        expect(b!.id).toBe(2);
-        expect(b!.noteFields.front).toBe('Question B');
+        expect(a.id).toBe(1);
+        expect(a.noteFields.front).toBe('Question A');
+        expect(b.id).toBe(2);
+        expect(b.noteFields.front).toBe('Question B');
     });
 
     it('a NoteParseError in one note aborts the entire call', () => {
@@ -531,14 +531,14 @@ describe('integration', () => {
 
     it('a note with only metadata (no body HTML) parses without error', () => {
         const [n] = parseFrom(makeNoteWithMeta('id: 5\ntags: review'));
-        expect(n!.id).toBe(5);
-        expect(n!.tags).toEqual(['review']);
+        expect(n.id).toBe(5);
+        expect(n.tags).toEqual(['review']);
     });
 
     it('a note with only body content (no metadata) has default field values', () => {
         const [n] = parseFrom(makeNoteEl('<p>body only</p>'));
-        expect(n!.id).toBeUndefined();
-        expect(n!.noteFields).toEqual({});
-        expect(n!.tags.length).toBe(0);
+        expect(n.id).toBeUndefined();
+        expect(n.noteFields).toEqual({});
+        expect(n.tags.length).toBe(0);
     });
 });

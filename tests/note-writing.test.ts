@@ -18,22 +18,8 @@ const doc = (...lines: string[]): string => lines.join('\n');
 /** A minimal valid two-line document for use in applyCardFieldUpdates tests. */
 const simpleMd = doc(NOTE_HEADER, '> Content');
 
-/** A fully valid NoteLocation for simpleMd (no metadata block). */
-const validLoc = (): NoteLocation => ({
-    noteStart: 0,
-    noteEnd: 1,
-    metaStart: -1,
-    metaEnd: -1,
-});
-
 /** A fully valid NoteLocation for a document that already has a metadata block. */
 const metaMd = doc(NOTE_HEADER, METADATA_HEADER, '>> due: 2024-01-01');
-const validMetaLoc = (): NoteLocation => ({
-    noteStart: 0,
-    noteEnd: 2,
-    metaStart: 1,
-    metaEnd: 2,
-});
 
 describe('locateNotes', () => {
 
@@ -125,12 +111,12 @@ describe('locateNotes', () => {
         it('sets metaStart to the line index of the metadata header', () => {
             // lines: 0=NOTE_HEADER  1='> Front'  2=METADATA_HEADER  3='>> due…'
             const md = doc(NOTE_HEADER, '> Front', METADATA_HEADER, '>> due: 2024-01-01');
-            expect(locateNotes(md)[0]!.metaStart).toBe(2);
+            expect(locateNotes(md)[0].metaStart).toBe(2);
         });
 
         it('sets metaEnd to the index of the last metadata field line', () => {
             const md = doc(NOTE_HEADER, METADATA_HEADER, '>> due: 2024-01-01', '>> interval: 7');
-            expect(locateNotes(md)[0]!.metaEnd).toBe(3);
+            expect(locateNotes(md)[0].metaEnd).toBe(3);
         });
 
         it('returns a fully correct NoteLocation for a standard note + metadata block', () => {
@@ -269,8 +255,8 @@ describe('locateNotes', () => {
             );
             const result = locateNotes(md);
             expect(result).toHaveLength(3);
-            expect(result[0]!.noteStart).toBeLessThan(result[1]!.noteStart);
-            expect(result[1]!.noteStart).toBeLessThan(result[2]!.noteStart);
+            expect(result[0].noteStart).toBeLessThan(result[1].noteStart);
+            expect(result[1].noteStart).toBeLessThan(result[2].noteStart);
         });
 
         it('closes the last note at EOF when no trailing blank line is present', () => {
@@ -351,12 +337,12 @@ describe('applyNoteUpdates', () => {
             expect(ls.slice(2)).toContain('>> interval: 7');
         });
 
-        it('increases the total line count by 1 (header) + number of fields', () => {
+        it('increases the total line count by 1 (header) + number of fields + 1 (separator)', () => {
             const md = doc(NOTE_HEADER, '> Content');
             const loc: NoteLocation = { noteStart: 0, noteEnd: 1, metaStart: -1, metaEnd: -1 };
             const fields = { due: '2024-06-01', interval: '7', ease: '2.5' };
             const result = applyNoteUpdates(md, loc, fields);
-            expect(result.split('\n').length).toBe(md.split('\n').length + 1 + 3);
+            expect(result.split('\n').length).toBe(md.split('\n').length + 1 + 3 + 1);
         });
 
         it('preserves all lines that precede the note', () => {
@@ -389,7 +375,24 @@ describe('applyNoteUpdates', () => {
             const ls = applyNoteUpdates(md, loc, { due: '2024-06-01' }).split('\n');
             expect(ls[3]).toBe(METADATA_HEADER);
             expect(ls[4]).toBe('>> due: 2024-06-01');
-            expect(ls[5]).toBe('> Content');
+            expect(ls[5]).toBe('>');
+            expect(ls[6]).toBe('> Content');
+        });
+
+        it('adds a trailing ">" separator when note content follows the new metadata block', () => {
+            const md = doc(NOTE_HEADER, '> Front', '> Back');
+            const loc: NoteLocation = { noteStart: 0, noteEnd: 2, metaStart: -1, metaEnd: -1 };
+            const ls = applyNoteUpdates(md, loc, { due: '2024-06-01' }).split('\n');
+            expect(ls[2]).toBe('>> due: 2024-06-01');
+            expect(ls[3]).toBe('>');
+            expect(ls[4]).toBe('> Front');
+        });
+
+        it('does not add a separator when the note has no content after the header', () => {
+            const md = doc(NOTE_HEADER);
+            const loc: NoteLocation = { noteStart: 0, noteEnd: 0, metaStart: -1, metaEnd: -1 };
+            const ls = applyNoteUpdates(md, loc, { due: '2024-06-01' }).split('\n');
+            expect(ls).toEqual([NOTE_HEADER, METADATA_HEADER, '>> due: 2024-06-01']);
         });
     });
 
@@ -526,7 +529,38 @@ describe('applyNoteUpdates', () => {
             const result = applyNoteUpdates(md, loc, { due: '2024-06-01' });
             const ls = result.split('\n');
             expect(ls[2]).toBe('>> due: 2024-06-01');
-            expect(ls[3]).toBe('> Back');
+            expect(ls[3]).toBe('>');
+            expect(ls[4]).toBe('> Back');
+        });
+
+        it('adds a trailing ">" separator when appending a new field before trailing note content', () => {
+            const md = doc(NOTE_HEADER, METADATA_HEADER, '>> due: 2024-01-01', '> Back side');
+            const loc: NoteLocation = { noteStart: 0, noteEnd: 3, metaStart: 1, metaEnd: 2 };
+            const result = applyNoteUpdates(md, loc, { interval: '7' });
+            const ls = result.split('\n');
+            expect(ls[3]).toBe('>> interval: 7');
+            expect(ls[4]).toBe('>');
+            expect(ls[5]).toBe('> Back side');
+        });
+
+        it('does not add a separator when the appended field is already the note\'s last content', () => {
+            const md = doc(NOTE_HEADER, METADATA_HEADER, '>> due: 2024-01-01');
+            const loc: NoteLocation = { noteStart: 0, noteEnd: 2, metaStart: 1, metaEnd: 2 };
+            const result = applyNoteUpdates(md, loc, { interval: '7' });
+            expect(result.split('\n')).toEqual([
+                NOTE_HEADER, METADATA_HEADER, '>> due: 2024-01-01', '>> interval: 7',
+            ]);
+        });
+
+        it('does not duplicate the separator when one is already present after the metadata block', () => {
+            const md = doc(NOTE_HEADER, METADATA_HEADER, '>> due: 2024-01-01', '>', '> Back side');
+            const loc: NoteLocation = { noteStart: 0, noteEnd: 4, metaStart: 1, metaEnd: 2 };
+            const result = applyNoteUpdates(md, loc, { interval: '7' });
+            const ls = result.split('\n');
+            expect(ls[3]).toBe('>> interval: 7');
+            expect(ls[4]).toBe('>');
+            expect(ls[5]).toBe('> Back side');
+            expect(ls).toHaveLength(6);
         });
     });
 
@@ -568,21 +602,21 @@ describe('applyNoteUpdates', () => {
             const updated = applyNoteUpdates(md, loc, { due: '2024-06-01' });
             const newLocs = locateNotes(updated);
             expect(newLocs).toHaveLength(1);
-            expect(newLocs[0]!.metaStart).toBeGreaterThan(-1);
-            expect(newLocs[0]!.metaEnd).toBeGreaterThan(-1);
+            expect(newLocs[0].metaStart).toBeGreaterThan(-1);
+            expect(newLocs[0].metaEnd).toBeGreaterThan(-1);
         });
 
         it('a second call using re-located positions updates fields correctly', () => {
             // First pass: insert metadata
             const md = doc(NOTE_HEADER, '> Content');
-            const loc1 = locateNotes(md)[0]!;
+            const loc1 = locateNotes(md)[0];
             const step1 = applyNoteUpdates(md, loc1, { due: '2024-06-01' });
 
             // Second pass: update due, append interval
-            const loc2 = locateNotes(step1)[0]!;
+            const loc2 = locateNotes(step1)[0];
             const step2 = applyNoteUpdates(step1, loc2, { due: '2024-12-31', interval: '7' });
 
-            const finalLoc = locateNotes(step2)[0]!;
+            const finalLoc = locateNotes(step2)[0];
             const ls = step2.split('\n');
             // The due field was updated in place (metaStart + 1)
             expect(ls[finalLoc.metaStart + 1]).toBe('>> due: 2024-12-31');
@@ -594,20 +628,20 @@ describe('applyNoteUpdates', () => {
             const md = doc(NOTE_HEADER, '> Q1', '', NOTE_HEADER, '> Q2', '');
             const locs = locateNotes(md);
 
-            const step1 = applyNoteUpdates(md, locs[0]!, { due: '2024-01-01' });
+            const step1 = applyNoteUpdates(md, locs[0], { due: '2024-01-01' });
             const locsStep1 = locateNotes(step1);
-            const step2 = applyNoteUpdates(step1, locsStep1[1]!, { due: '2024-06-01' });
+            const step2 = applyNoteUpdates(step1, locsStep1[1], { due: '2024-06-01' });
 
             const finalLocs = locateNotes(step2);
             expect(finalLocs).toHaveLength(2);
-            expect(finalLocs[0]!.metaStart).toBeGreaterThan(-1);
-            expect(finalLocs[1]!.metaStart).toBeGreaterThan(-1);
+            expect(finalLocs[0].metaStart).toBeGreaterThan(-1);
+            expect(finalLocs[1].metaStart).toBeGreaterThan(-1);
         });
 
         it('output of applyNoteUpdates is parseable by locateNotes for a multi-field insert', () => {
             const md = doc(NOTE_HEADER, '> Q', '> A', '');
             const [loc] = locateNotes(md);
-            const updated = applyNoteUpdates(md, loc!, {
+            const updated = applyNoteUpdates(md, loc, {
                 due: '2024-06-01',
                 interval: '4',
                 ease: '2.5',
@@ -615,7 +649,7 @@ describe('applyNoteUpdates', () => {
 
             const [newLoc] = locateNotes(updated);
             expect(newLoc).toBeDefined();
-            expect(newLoc!.metaEnd - newLoc!.metaStart).toBe(3); // header + 3 field lines
+            expect(newLoc.metaEnd - newLoc.metaStart).toBe(3); // header + 3 field lines
         });
     });
 });

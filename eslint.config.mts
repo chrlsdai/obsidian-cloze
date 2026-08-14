@@ -59,6 +59,11 @@ export default defineConfig(
 			'@typescript-eslint/no-unsafe-call': 'off',
 			'@typescript-eslint/no-unsafe-member-access': 'off',
 			'@typescript-eslint/no-unsafe-return': 'off',
+			// jest/unbound-method understands jest.mocked()/mock assertions and
+			// won't flag them the way the plain typescript-eslint rule does.
+			'@typescript-eslint/unbound-method': 'off',
+			'jest/unbound-method': 'error',
+			'jest/expect-expect': ['warn', { assertFunctionNames: ['expect', 'throwsForMeta'] }],
 		},
 	},
 );

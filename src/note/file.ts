@@ -97,7 +97,7 @@ export class NoteFile {
         markdown: string,
         filePath: string,
     ): Promise<HTMLElement> {
-        const container = document.createElement('div');
+        const container = createDiv();
         const component = new Component();
         component.load();
         try {

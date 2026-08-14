@@ -255,8 +255,8 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
 
             const { updates } = await pushNotes([makeNote()], VALID_CONFIG, CONTEXT, client as any, APP, MEDIA_CACHE);
 
-            expect(typeof updates[0]!.id).toBe('string');
-            expect(updates[0]!.id).toBe('1700000001234');
+            expect(typeof updates[0].id).toBe('string');
+            expect(updates[0].id).toBe('1700000001234');
         });
 
         it('batches all new notes into a single addNotes call', async () => {
@@ -305,7 +305,7 @@ describe('pushNotes — user triggers a sync from Obsidian to Anki', () => {
                 client as any, APP, MEDIA_CACHE,
             );
 
-            expect(errors[0]!.message).toMatch(/2 of 3/);
+            expect(errors[0].message).toMatch(/2 of 3/);
         });
 
         it('still records the IDs of notes that Anki accepted despite other notes in the same batch being rejected', async () => {

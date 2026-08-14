@@ -5,9 +5,8 @@
  */
 
 import { resolveNoteMedia, createEmptyMediaCache, MediaCache } from '../src/anki/media';
-import type { NoteContext } from '../src/note/schema';
 
-const CTX = { vaultName: 'MyVault', fileName: 'Note.md', filePath: 'Note.md' } as NoteContext;
+const CTX = { vaultName: 'MyVault', fileName: 'Note.md', filePath: 'Note.md' };
 
 /** Wraps HTML in a container, mirroring how Obsidian renders note content. */
 function makeEl(html: string): HTMLElement {
@@ -109,9 +108,9 @@ describe('resolveNoteMedia — user embeds an image in a flashcard note', () => 
 
         const imgs = [...el.querySelectorAll('img')];
         expect(imgs).toHaveLength(2);
-        expect(imgs[0]!.getAttribute('src')).toMatch(/\.png$/);
-        expect(imgs[1]!.getAttribute('src')).toMatch(/\.jpg$/);
-        expect(imgs[0]!.getAttribute('src')).not.toBe(imgs[1]!.getAttribute('src'));
+        expect(imgs[0].getAttribute('src')).toMatch(/\.png$/);
+        expect(imgs[1].getAttribute('src')).toMatch(/\.jpg$/);
+        expect(imgs[0].getAttribute('src')).not.toBe(imgs[1].getAttribute('src'));
         expect(client.storeMediaFile).toHaveBeenCalledTimes(2);
     });
 
@@ -131,7 +130,7 @@ describe('resolveNoteMedia — user embeds an image in a flashcard note', () => 
 
             expect(client.storeMediaFile).toHaveBeenCalledTimes(1);
             const imgs = [...el.querySelectorAll('img')];
-            expect(imgs[0]!.getAttribute('src')).toBe(imgs[1]!.getAttribute('src'));
+            expect(imgs[0].getAttribute('src')).toBe(imgs[1].getAttribute('src'));
         });
 
         it('skips re-upload across separate calls when the cache is reused', async () => {

@@ -157,8 +157,8 @@ describe("user's note contains internal links that should open inside Obsidian",
         );
         transformInternalLinks(el, ctx);
         const links = el.querySelectorAll<HTMLAnchorElement>('a');
-        expect(links[0]!.href).toContain('file=NoteA');
-        expect(links[1]!.href).toContain('file=NoteB');
+        expect(links[0].href).toContain('file=NoteA');
+        expect(links[1].href).toContain('file=NoteB');
     });
 
     it('leaves regular external links untouched', () => {
@@ -261,8 +261,8 @@ describe('stripping non-standard HTML attributes before export to Anki', () => {
         );
         stripAttributes(el);
         const paras = el.querySelectorAll('p');
-        expect(paras[0]!.hasAttribute('style')).toBe(false);
-        expect(paras[1]!.hasAttribute('style')).toBe(false);
+        expect(paras[0].hasAttribute('style')).toBe(false);
+        expect(paras[1].hasAttribute('style')).toBe(false);
     });
 
     it('does nothing when every present attribute is already on the allow-list', () => {

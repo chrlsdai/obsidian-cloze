@@ -26,7 +26,6 @@ export default class ClozePlugin extends Plugin {
 
     /** Registers commands, the settings tab, and the cloze post-processor. */
     async onload() {
-        console.clear();
         await this.loadSettings();
         this.addSettingTab(new ClozeSettingTab(this.app, this));
 
@@ -34,19 +33,19 @@ export default class ClozePlugin extends Plugin {
 
         this.addCommand({
             id: 'sync-vault',
-            name: 'Sync Vault',
+            name: 'Sync vault',
             callback: async () => void this.syncVault(statusBar)
         });
 
         this.addCommand({
             id: "reset-cache",
-            name: "Reset Cache",
+            name: "Reset cache",
             callback: async () => void this.resetCache()
         });
 
         this.addCommand({
             id: "tag-floating-notes",
-            name: "Tag Floating Notes",
+            name: "Tag floating notes",
             callback: async () => void this.tagFloatingNotes()
         });
 
@@ -56,14 +55,14 @@ export default class ClozePlugin extends Plugin {
 
         // Fetch Anki deck/model names in the background.
         // Intentionally not awaited so onload() returns immediately.
-        this.loadAnkiSuggestions();
+        void this.loadAnkiSuggestions();
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────────
 
     /** Loads plugin data from disk, falling back to defaults for anything missing. */
     async loadSettings() {
-        const saved = (await this.loadData())
+        const saved = (await this.loadData()) as Partial<PluginData> | null;
         this.fileSyncTimes = saved?.fileSyncTimes ?? {};
         this.mediaCache = saved?.mediaCache ?? createEmptyMediaCache();
         this.settings = Object.assign({}, DEFAULT_SETTINGS, saved?.settings ?? {})
@@ -90,7 +89,9 @@ export default class ClozePlugin extends Plugin {
             ]);
             this.deckSuggestions = decks;
             this.modelSuggestions = models;
-        } catch { }
+        } catch {
+            // Anki not running, or AnkiConnect unreachable — suggestions stay empty.
+        }
     }
 
     // ── Sync ─────────────────────────────────────────────────────────────────────
@@ -157,7 +158,7 @@ export default class ClozePlugin extends Plugin {
         await this.saveSettings();
         statusBar.setText('✅ Done!');
         new Notice(`Finished processing ${files.length} files.`);
-        setTimeout(() => statusBar.setText(''), 5_000);
+        window.setTimeout(() => statusBar.setText(''), 5_000);
     }
 
     /**
@@ -206,7 +207,7 @@ export default class ClozePlugin extends Plugin {
             return;
         }
 
-        new Notice('Scanning vault for note IDs…');
+        new Notice('Scanning vault for note ids…');
         const vaultNoteIds = await this.collectVaultNoteIds(allFiles);
 
         new Notice('Connecting to Anki…');

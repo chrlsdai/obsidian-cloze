@@ -29,7 +29,11 @@ export class InvalidMetadataError extends Error {
  * @returns Array of parsed {@link Note} objects (may be empty).
  */
 export function parseNotesFromElement(documentEl: HTMLElement): Note[] {
-    if (!(documentEl instanceof HTMLElement)) {
+    if (
+        typeof documentEl !== 'object' ||
+        documentEl === null ||
+        !(documentEl as unknown as Node).instanceOf?.(HTMLElement)
+    ) {
         throw new TypeError(`documentEl must be an HTMLElement, got ${typeof documentEl}`);
     }
     return Array.from(

@@ -453,8 +453,8 @@ describe('NoteFile', () => {
                     .mockReturnValueOnce('v1') // called for index 1
                     .mockReturnValueOnce('v2'); // called for index 0
                 await noteFile.updateNotes([{ a: '1' }, { b: '2' }]);
-                expect(mockApplyNoteUpdates.mock.calls[0]![0]).toBe('v0');
-                expect(mockApplyNoteUpdates.mock.calls[1]![0]).toBe('v1');
+                expect(mockApplyNoteUpdates.mock.calls[0][0]).toBe('v0');
+                expect(mockApplyNoteUpdates.mock.calls[1][0]).toBe('v1');
             });
 
             it('writes the final accumulated content to the vault', async () => {

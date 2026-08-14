@@ -164,7 +164,11 @@ export function applyNoteUpdates(
     }
 
     if (metaStart === -1) {
-        lines.splice(noteStart + 1, 0, METADATA_HEADER, ...entriesToLines(fields));
+        const insertedLines = [METADATA_HEADER, ...entriesToLines(fields)];
+        if (needsTrailingSeparator(lines, noteStart, noteEnd)) {
+            insertedLines.push('>');
+        }
+        lines.splice(noteStart + 1, 0, ...insertedLines);
     } else {
         const pending = { ...fields };
 
@@ -177,9 +181,30 @@ export function applyNoteUpdates(
                 delete pending[key];
             }
         }
-        lines.splice(metaEnd + 1, 0, ...entriesToLines(pending));
+
+        const pendingLines = entriesToLines(pending);
+        if (pendingLines.length > 0 && needsTrailingSeparator(lines, metaEnd, noteEnd)) {
+            pendingLines.push('>');
+        }
+        lines.splice(metaEnd + 1, 0, ...pendingLines);
     }
     return lines.join('\n');
+}
+
+/**
+ * True when there is note content after `insertEnd` that isn't already
+ * separated from it by a blank blockquote-continuation line. Obsidian needs
+ * such a line (a bare `>`) to know where the nested `[!note-metadata]`
+ * callout ends and the outer note's own content resumes.
+ */
+function needsTrailingSeparator(
+    lines: string[],
+    insertEnd: number,
+    noteEnd: number,
+): boolean {
+    if (insertEnd >= noteEnd) return false;
+    const next = lines[insertEnd + 1];
+    return next !== '' && next !== '>';
 }
 
 const toFieldLine = (key: string, value: string) => `>> ${key}: ${value}`;
